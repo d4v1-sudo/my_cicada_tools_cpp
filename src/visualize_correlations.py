@@ -812,16 +812,17 @@ def plot_rolling_ioc_from_csv(csv_file: str, cache: dict) -> None:
         grp = grp.sort_values("Position")
         plt.figure(figsize=(15, 5))
         plt.plot(grp["Position"], grp["IoC"], marker="o", linestyle="-", markersize=2, color="crimson", linewidth=1)
-        plt.axhline(y=0.034, color="gray",  linestyle="--", label="Random (1/29)")
-        plt.axhline(y=0.067, color="green", linestyle="--", label="Liber Plaintext")
+        plt.axhline(y=0.03448, color="gray",  linestyle="--", label="Random (1/29 ≈ 0.034)")
+        plt.axhline(y=0.0667, color="green", linestyle="--", label="Target (Liber ≈ 0.067)")
         plt.fill_between(grp["Position"], grp["IoC"], color="crimson", alpha=0.1)
         plt.title(f"Rolling IoC Metrics: {page}", fontsize=14)
         plt.xlabel("Window position (starting rune)")
         plt.ylabel("Index of Coincidence")
-        plt.legend()
+        plt.legend(loc="upper right")
         plt.ylim(0.0, 0.15) # Zoom out para ver referências com mais perspectiva
         plt.grid(True, alpha=0.3)
-        clean_name = page.replace(" ", "_")
+        # Sanitização de nome de arquivo para evitar problemas com caracteres especiais
+        clean_name = re.sub(r'[^\w\-_\.]', '_', page)
         plt.savefig(
             os.path.join(out_dir, f"ioc_{clean_name}.png"), dpi=150, bbox_inches="tight"
         )
