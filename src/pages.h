@@ -23,7 +23,7 @@ bool apply_known_solution(const Page& page, ProcessedText& pt);
 std::string get_solution_method(size_t page_index);
 std::vector<size_t> get_possible_interrupters(size_t page_index);
 
-inline constexpr std::array<Page, 75> G_PAGES = {{
+inline constexpr std::array<Page, 74> G_PAGES = {{
     {1, "Page 1", R"raw(ᚱ-ᛝᚱᚪᛗᚹ.ᛄᛁᚻᛖᛁᛡᛁ-ᛗᚫᚣᚹ-ᛠᚪᚫᚾ-/
 ᚣᛖᛈ-ᛄᚫᚫᛞ.ᛁᛉᛞᛁᛋᛇ-ᛝᛚᚱᛇ-ᚦᚫᛡ/
 -ᛞᛗᚫᛝ-ᛇᚫ-ᛄᛁ-ᛇᚪᛡᛁ.ᛇᛁᛈᛇ-ᚣᛁ-ᛞ/
