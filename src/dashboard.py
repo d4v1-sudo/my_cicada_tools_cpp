@@ -278,25 +278,32 @@ with tab_geom:
         st.plotly_chart(fig_hist, width="stretch")
 
         col1, col2 = st.columns(2)
+        
+        # Top Deltas por frequência (do interrupt_deltas.csv)
         with col1:
             st.subheader("Top Deltas por frequência")
             top_d = df_delta["Delta"].value_counts().head(15).reset_index()
             top_d.columns = ["Delta", "Count"]
             fig_top = px.bar(top_d, x="Delta", y="Count", title="Top 15 Deltas")
             st.plotly_chart(fig_top, width="stretch")
-
+        
+        # Top Delta per Page (do page_features.csv)
         with col2:
-            if "Page" in df_delta.columns and "TopDelta" in df_delta.columns:
-                st.subheader("Top Delta per Page")
-                top_page = df_delta.sort_values("TopDelta", ascending=False).drop_duplicates("Page")
-                fig_td = px.bar(
-                    top_page, x="Page", y="TopDelta",
-                    title="Largest interval per page",
-                    color="TopDelta", color_continuous_scale="reds",
-                )
-                st.plotly_chart(fig_td, width="stretch")
-            else:
-                st.info("TopDelta column not available in this file.")
+            feat_path_geom = os.path.join(OUTPUT_DIR, "page_features.csv")
+            if os.path.exists(feat_path_geom):
+                df_feat_geom = load_csv(feat_path_geom)
+                # Garante que as colunas 'Page' e 'TopDelta' existam em page_features.csv
+                if "Page" in df_feat_geom.columns and "TopDelta" in df_feat_geom.columns:
+                    st.subheader("Top Delta per Page")
+                    top_page = df_feat_geom.sort_values("TopDelta", ascending=False).drop_duplicates("Page")
+                    fig_td = px.bar(
+                        top_page, x="Page", y="TopDelta",
+                        title="Largest interval per page",
+                        color="TopDelta", color_continuous_scale="reds",
+                    )
+                    st.plotly_chart(fig_td, width="stretch")
+                else:
+                    st.info("page_features.csv não encontrado ou coluna 'TopDelta' ausente. Execute as Opções 1 ou 9 na ferramenta C++.")
 
         # Imagens do histograma gerado pelo script Python
         hist_img = delta_path.replace(".csv", "_histogram.png")
@@ -324,7 +331,9 @@ with tab_ks:
         st.plotly_chart(fig_ks, width="stretch")
 
         # FFT
-        stream = df_pg["KeyValue"].values.astype(float)
+        # Filter out "UNRESOLVED" markers before numeric analysis
+        numeric_series = df_pg[df_pg["KeyValue"] != "UNRESOLVED"]["KeyValue"]
+        stream = numeric_series.values.astype(float)
         if len(stream) >= 10:
             fft_vals    = np.abs(np.fft.rfft(stream - stream.mean()))
             freqs       = np.fft.rfftfreq(len(stream))
@@ -347,7 +356,7 @@ with tab_ks:
 
         fft_img = ks_path.replace(".csv", "_fft_autocorr.png")
         if os.path.exists(fft_img):
-            st.image(fft_img, caption="FFT + Autocorrelation (all resolved pages)", width="stretch")
+            st.image(fft_img, caption="FFT + Autocorrelation (subconjunto de páginas resolvidas)", width="stretch")
 
     st.info("Strong periodicity in the key stream indicates a predictable mathematical algorithm.")
 

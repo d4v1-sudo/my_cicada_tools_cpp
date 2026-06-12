@@ -536,10 +536,17 @@ def plot_key_stream_analysis(csv_file: str, cache: dict) -> None:
     if n_pages == 0:
         return
 
-    fig, axes = plt.subplots(n_pages, 2, figsize=(16, 4 * n_pages), squeeze=False)
+    max_pages_to_plot = 10 # Limita a 10 páginas por imagem para evitar DecompressionBombError
+    pages_to_plot = pages[:max_pages_to_plot]
+    
+    if n_pages > max_pages_to_plot:
+        print(f"Warning: Only plotting the first {max_pages_to_plot} of {n_pages} pages in key stream analysis to prevent image size issues.")
+
+    fig, axes = plt.subplots(len(pages_to_plot), 2, figsize=(16, 4 * len(pages_to_plot)), squeeze=False)
     fig.suptitle("Análise da Key Stream (Páginas Resolvidas)", fontsize=15, y=1.01)
 
-    for i, page in enumerate(pages):
+    # Itera apenas sobre as páginas selecionadas para plotar
+    for i, page in enumerate(pages_to_plot):
         page_data = df[df["Page"] == page]
         # Filter out "UNRESOLVED" markers before converting to float
         numeric_series = page_data[page_data["KeyValue"] != "UNRESOLVED"]["KeyValue"]
