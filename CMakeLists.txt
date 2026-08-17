@@ -30,6 +30,7 @@ add_executable(cicada_tools
     ./src/core.cpp
     ./src/Transformers.cpp
     ./src/solutions.cpp
+    ./src/secrets.cpp
     ./src/utils.cpp
     ./src/dictionary_attack.cpp
 )

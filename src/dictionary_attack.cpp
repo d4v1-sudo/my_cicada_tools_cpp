@@ -14,10 +14,10 @@
 
 namespace utils {
 
-// Lista explícita de bigramas aceitáveis no inglês/runas do Liber Primus para evitar falsos positivos
+// Explicit list of acceptable bigrams in English/runes of Liber Primus to avoid false positives
 static const std::set<std::string> VALID_BIGRAMS = {"TH", "NG", "AE", "EA", "EO", "OE", "IA"};
 
-// Carrega wordlist de arquivo (uma palavra por linha, uppercase)
+// Load wordlist from file (one word per line, uppercase)
 static std::vector<std::string> load_wordlist(const std::string& path) {
     std::vector<std::string> words;
     std::ifstream f(path);
@@ -39,14 +39,14 @@ static std::vector<std::string> load_wordlist(const std::string& path) {
     return words;
 }
 
-// Converte palavra inglesa para índices rúnicos tratando adequadamente bigramas linguísticos
+// Convert English word to rune indices handling linguistic bigrams properly
 static std::vector<uint8_t> word_to_rune_indices(const std::string& word) {
     std::vector<uint8_t> result;
     size_t i = 0;
     while (i < word.size()) {
         bool found = false;
         
-        // CORREÇÃO 4: Só consome o bigrama se ele for linguisticamente válido
+        // CORRECT: Only consume bigram if linguistically valid
         if (i + 1 < word.size()) {
             std::string bigram = word.substr(i, 2);
             if (VALID_BIGRAMS.count(bigram)) {
@@ -64,7 +64,7 @@ static std::vector<uint8_t> word_to_rune_indices(const std::string& word) {
             if (idx) {
                 result.push_back(static_cast<uint8_t>(*idx));
             } else {
-                return {}; // Letra inválida/não mapeada (ex: Q, Z) -> descarta palavra
+                return {}; // invalid character, skip this word entirely
             }
             i++;
         }
@@ -137,6 +137,9 @@ void run_dictionary_vigenere_attack(
         std::wstring wname(page.name.begin(), page.name.end());
         std::wcout << L"  Attacking " << wname << L"...\n";
 
+        auto page_interrupts = core::get_possible_interrupters(page_idx + 1);
+        std::set<size_t> interrupt_set(page_interrupts.begin(), page_interrupts.end());
+
         struct Hit { std::string word; double fitness; std::string preview; };
         std::vector<Hit> page_hits;
         std::mutex page_hits_mtx;
@@ -148,19 +151,19 @@ void run_dictionary_vigenere_attack(
             for (size_t i = start; i < end; ++i) {
                 const auto& prep_word = prepared_words[i];
                 const auto& key_indices = prep_word.indices;
-
-                test_buffer = pt_original.indices();
+                size_t key_len = key_indices.size();
                 
-                size_t r_pos = 0; size_t k_ptr = 0; size_t i_ptr = 0;
-                    for (auto& idx : test_buffer) {
+                test_buffer = pt_original.indices();
+                size_t r_pos = 0; size_t k_ptr = 0;
+                for (auto& idx : test_buffer) {
                     if (idx >= 29) continue;
 
-                    if (i_ptr < sorted_interrupts.size() && sorted_interrupts[i_ptr] == r_pos) {
-                        i_ptr++;
+                    if (interrupt_set.count(r_pos)) {
+                        // Skip
                     } else {
                         {
-                            int tmp = static_cast<int>(idx);
-                            int key = static_cast<int>(key_indices[k_ptr % key_indices.size()]);
+                            int tmp = (int)idx;
+                            int key = (int)key_indices[k_ptr % key_len];
                             tmp = (tmp - key + 29) % 29;
                             idx = static_cast<uint8_t>(tmp);
                         }
@@ -191,17 +194,15 @@ void run_dictionary_vigenere_attack(
                     }
                     total_hits++;
 
-                    if (has_keyword) {
-                        std::lock_guard<std::mutex> lock(out_mtx);
-                        std::wcout << GREEN_COLOR << L"  [!!! KEYWORD HIT] "
-                                   << std::wstring(prep_word.original.begin(), prep_word.original.end())
-                                   << L" on " << wname << RESET_COLOR << L"\n";
-                        out << "*** KEYWORD HIT ***\n";
-                        out << "Page: " << page.name << "\n";
-                        out << "Key:  " << prep_word.original << "\n";
-                        out << "Fitness: " << std::fixed << std::setprecision(5) << fitness << "\n";
-                        out << "Preview: " << latin << "\n---\n";
-                    }
+                    std::lock_guard<std::mutex> lock(out_mtx);
+                    std::wcout << L"\n" << (has_keyword ? GREEN_COLOR : L"") << L"[HIT] Fit: " << std::fixed << std::setprecision(5) << fitness 
+                               << L" | Key: " << std::wstring(prep_word.original.begin(), prep_word.original.end())
+                               << L" | Page: " << wname << (has_keyword ? L" (KEYWORD FOUND!)" : L"") << RESET_COLOR << L"\n"
+                               << L"Decrypted Text:\n" << std::wstring(latin.begin(), latin.end()) << L"\n"
+                               << L"------------------------------------------\n";
+
+                    out << (has_keyword ? "*** KEYWORD HIT ***\n" : "*** HIGH FITNESS HIT ***\n");
+                    out << "Page: " << page.name << "\nKey: " << prep_word.original << "\nFitness: " << fitness << "\nPreview: " << latin << "\n---\n";
                 }
             }
         };
@@ -258,7 +259,7 @@ void run_rhythmic_dictionary_attack(
     }
 
     if (all_words.empty()) {
-        std::wcout << L"[ERROR] Nenhuma palavra carregada das wordlists rítmicas. Verifique os caminhos.\n";
+        std::wcout << L"[ERROR] No words loaded from rhythmic wordlists. Check paths.\n";
         return;
     }
 
@@ -272,7 +273,7 @@ void run_rhythmic_dictionary_attack(
     }
 
     if (prepared_words.empty()) {
-        std::wcout << L"[ERROR] Nenhuma das " << all_words.size() << L" palavras eh valida para o alfabeto runico.\n";
+        std::wcout << L"[ERROR] None of the " << all_words.size() << L" words are valid for the runic alphabet.\n";
         return;
     }
 
@@ -363,18 +364,16 @@ void run_rhythmic_dictionary_attack(
                         if (latin.find(kw) != std::string::npos) { has_keyword = true; break; }
                     }
 
-                    if (has_keyword) {
-                        std::lock_guard<std::mutex> lock(out_mtx);
-                        total_hits++;
-                        std::wcout << GREEN_COLOR << L"  [!!! RHYTHMIC HIT] "
-                                   << std::wstring(prep_word.original.begin(), prep_word.original.end())
-                                   << L" on " << wname << RESET_COLOR << L"\n";
-                        out << "*** RHYTHMIC KEYWORD HIT ***\n"
-                            << "Page: " << page.name << "\n"
-                            << "Key:  " << prep_word.original << "\n"
-                            << "Fitness: " << std::fixed << std::setprecision(5) << fitness << "\n"
-                            << "Preview: " << latin << "\n---\n";
-                    }
+                    std::lock_guard<std::mutex> lock(out_mtx);
+                    total_hits++;
+                    std::wcout << L"\n" << (has_keyword ? GREEN_COLOR : L"") << L"[RHYTHMIC HIT] Fit: " << std::fixed << std::setprecision(5) << fitness 
+                               << L" | Key: " << std::wstring(prep_word.original.begin(), prep_word.original.end())
+                               << L" | Page: " << wname << (has_keyword ? L" (KEYWORD FOUND!)" : L"") << RESET_COLOR << L"\n"
+                               << L"Decrypted Text:\n" << std::wstring(latin.begin(), latin.end()) << L"\n"
+                               << L"------------------------------------------\n";
+
+                    out << (has_keyword ? "*** RHYTHMIC KEYWORD HIT ***\n" : "*** RHYTHMIC HIGH FITNESS HIT ***\n");
+                    out << "Page: " << page.name << "\nKey: " << prep_word.original << "\nFitness: " << fitness << "\nPreview: " << latin << "\n---\n";
                 }
             }
         };
@@ -500,14 +499,18 @@ void run_autokey_dictionary_attack(
                             std::lock_guard<std::mutex> lock(page_hits_mtx);
                             page_hits.push_back({prep_word.original, fitness, std::string(utf8_take(latin, 120)), ciphertext_mode});
                         }
-                        for (const auto& kw : FIND_WORDS) {
-                            if (latin.find(kw) != std::string::npos) {
-                                std::lock_guard<std::mutex> lock(out_mtx);
-                                std::wcout << GREEN_COLOR << L"  [!!! " << (ciphertext_mode ? L"CTEXT" : L"PLAIN") << L" HIT] " << std::wstring(prep_word.original.begin(), prep_word.original.end()) << RESET_COLOR << L"\n";
-                                out << "*** HIT (" << (ciphertext_mode ? "CIPHER" : "PLAIN") << ") ***\nPage: " << page.name << "\nSeed: " << prep_word.original << "\nText: " << latin << "\n---\n";
-                                break;
-                            }
-                        }
+
+                        bool has_keyword = false;
+                        for (const auto& kw : FIND_WORDS) { if (latin.find(kw) != std::string::npos) { has_keyword = true; break; } }
+
+                        std::lock_guard<std::mutex> lock(out_mtx);
+                        std::wcout << L"\n" << (has_keyword ? GREEN_COLOR : L"") << L"[AUTOKEY HIT] " << (ciphertext_mode ? L"(CTEXT)" : L"(PLAIN)") 
+                                   << L" Fit: " << fitness << L" | Seed: " << std::wstring(prep_word.original.begin(), prep_word.original.end()) 
+                                   << L" | Page: " << wname << RESET_COLOR << L"\n"
+                                   << L"Decrypted Text:\n" << std::wstring(latin.begin(), latin.end()) << L"\n"
+                                   << L"------------------------------------------\n";
+
+                        out << "*** AUTOKEY HIT (" << (ciphertext_mode ? "CIPHER" : "PLAIN") << ") ***\nPage: " << page.name << "\nSeed: " << prep_word.original << "\nFitness: " << fitness << "\nText: " << latin << "\n---\n";
                     }
                 }
             }

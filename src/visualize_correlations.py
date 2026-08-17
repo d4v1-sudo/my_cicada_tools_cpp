@@ -82,6 +82,15 @@ def mark_processed(path: str, cache: dict) -> None:
 # Math helpers
 # ---------------------------------------------------------------------------
 
+def calculate_benford_dist(data):
+    """Calcula a distribuição do primeiro dígito para comparar com a Lei de Benford."""
+    digits = [int(str(abs(x))[0]) for x in data if x != 0]
+    if not digits: return np.zeros(9)
+    counts = np.bincount(digits, minlength=10)[1:]
+    return counts / counts.sum()
+
+BENFORD_IDEAL = np.log10(1 + 1/np.arange(1, 10))
+
 def is_prime(n: int) -> bool:
     if n < 2:
         return False
@@ -158,12 +167,12 @@ def generate_textual_report(df, csv_file: str, principal_components=None) -> Non
 
         f.write("\n--- DETECTED COMMUNITIES (Louvain) ---\n")
         for i, c in enumerate(communities):
-            f.write(f"Cluster {i+1}: {len(c)} páginas ({', '.join(list(c)[:5])}...)\n")
+            f.write(f"Cluster {i+1}: {len(c)} pages ({', '.join(list(c)[:5])}...)\n")
 
         f.write("\n--- HUB PAGES (High mean similarity with the book) ---\n")
         hub_pages = df.where(mask).mean().sort_values(ascending=False).head(5)
         for page, val in hub_pages.items():
-            f.write(f"{page}: Correlação média {val:.4f}\n")
+            f.write(f"{page}: Mean correlation {val:.4f}\n")
 
         f.write("\n--- STATISTICAL OUTLIERS (Z-Score < -2) ---\n")
         if outliers.empty:
@@ -242,7 +251,7 @@ def plot_correlation_matrix(csv_file: str, cache: dict) -> None:
 
     generate_textual_report(df, csv_file, principal_components)
 
-    # Matriz de distância cosseno
+    # Cosine distance matrix
     dist_mat = squareform(pdist(df.values, metric="cosine"))
     plt.figure(figsize=(12, 10))
     sns.heatmap(dist_mat, cmap="viridis", center=None, square=True)
@@ -252,7 +261,7 @@ def plot_correlation_matrix(csv_file: str, cache: dict) -> None:
 
     sns.set_theme(style="white")
 
-    # Heatmap simples
+    # Simple heatmap
     plt.figure(figsize=(14, 12))
     sns.heatmap(
         df, cmap="RdYlBu_r", center=0, square=True,
@@ -263,7 +272,7 @@ def plot_correlation_matrix(csv_file: str, cache: dict) -> None:
     print(f"Heatmap saved: {csv_file.replace('.csv','_heatmap.png')}")
     plt.close()
 
-    # Clustermap hierárquico
+    # Hierarchical clustermap
     cg = sns.clustermap(  # noqa: F841
         df, cmap="RdYlBu_r", center=0, method="ward", figsize=(15, 15), linewidths=0.5
     )
@@ -272,7 +281,7 @@ def plot_correlation_matrix(csv_file: str, cache: dict) -> None:
     print(f"Clustermap saved: {csv_file.replace('.csv','_cluster.png')}")
     plt.close()
 
-    # Network graph (threshold adaptativo)
+    # Network graph (adaptive threshold)
     try:
         G = nx.Graph()
         mask_net = np.ones(df.shape, dtype=bool)
@@ -378,7 +387,7 @@ def plot_delta_histograms(csv_file: str, cache: dict) -> None:
         suggested = [int(d) for d in top_deltas.index[:5]]
         print(f"  Try using this jump sequence: {suggested}")
 
-    # Histograma por página (se coluna Page existir)
+    # Histogram per page (if Page column exists)
     if "Page" in df.columns:
         for page_name, grp in df.groupby("Page"):
             plt.figure(figsize=(10, 4))
@@ -403,7 +412,7 @@ def plot_delta_histograms(csv_file: str, cache: dict) -> None:
     plt.close()
     print(f"\nHistogram saved: {out_global}")
 
-    # TopDelta por página (se coluna TopDelta existir)
+    # TopDelta por page (se coluna TopDelta existir)
     if "TopDelta" in df.columns and "Page" in df.columns:
         top_df = df.sort_values("TopDelta", ascending=False).drop_duplicates("Page")
         plt.figure(figsize=(12, max(5, len(top_df) * 0.35)))
@@ -417,6 +426,226 @@ def plot_delta_histograms(csv_file: str, cache: dict) -> None:
         print(f"TopDelta plot saved: {out_top}")
 
     mark_processed(csv_file, cache)
+
+# ---------------------------------------------------------------------------
+# plot_gematria_analysis — gematria_sums.csv (NOVO)
+# ---------------------------------------------------------------------------
+
+def plot_gematria_analysis(csv_file: str, cache: dict) -> None:
+    """Analyzes word numerological properties (Gematria)."""
+    if not needs_processing(csv_file, cache):
+        return
+    if not os.path.exists(csv_file):
+        return
+
+    df = pd.read_csv(csv_file)
+    if df.empty:
+        return
+
+    out_dir = os.path.dirname(csv_file)
+
+    # 1. Distribuição de Digital Roots (Frequência de 1 a 9)
+    if 'DigitalRoot' in df.columns:
+        plt.figure(figsize=(10, 6))
+        sns.countplot(data=df, x='DigitalRoot', hue='DigitalRoot', palette='deep', legend=False)
+        plt.title('Distribution of Digital Roots (Gematria)', fontsize=14)
+        plt.xlabel('Digital Root')
+        plt.ylabel('Word Count')
+        out_dr = csv_file.replace('.csv', '_digital_root_dist.png')
+        plt.savefig(out_dr, dpi=200, bbox_inches='tight')
+        plt.close()
+        print(f'Digital root distribution saved: {out_dr}')
+
+    # 2. Proporção de primos / fibonacci por página
+    if 'IsPrime' in df.columns or 'IsFibonacci' in df.columns:
+        page_stats = df.groupby('Page').agg({
+            'IsPrime': 'mean' if 'IsPrime' in df.columns else (lambda x: 0),
+            'IsFibonacci': 'mean' if 'IsFibonacci' in df.columns else (lambda x: 0),
+        })
+        plt.figure(figsize=(12, 6))
+        cols = [c for c in ['IsPrime', 'IsFibonacci'] if c in page_stats.columns]
+        if cols:
+            page_stats[cols].plot(kind='bar', stacked=False, figsize=(14, 6), color=['#e15759', '#76b7b2'][:len(cols)])
+            plt.title('Proportion of Prime and Fibonacci Sums per Page', fontsize=14)
+            plt.ylabel('Proportion (0.0 - 1.0)')
+            out_stats = csv_file.replace('.csv', '_page_stats.png')
+            plt.savefig(out_stats, dpi=200, bbox_inches='tight')
+            plt.close()
+            print(f'Prime/Fibonacci proportions saved: {out_stats}')
+
+    # 3. Lei de Benford na soma das palavras (primeiro dígito)
+    if 'Sum' in df.columns:
+        actual_benford = calculate_benford_dist(df['Sum'].dropna())
+        x = np.arange(1, 10)
+        plt.figure(figsize=(10, 6))
+        plt.bar(x - 0.2, actual_benford, width=0.4, label='Gematria Sums', color='#4e79a7')
+        plt.bar(x + 0.2, BENFORD_IDEAL, width=0.4, label='Benford Ideal', color='#e15759', alpha=0.6)
+        plt.xticks(x)
+        plt.title("Benford's Law Analysis: Word Sums (First Digit)")
+        plt.xlabel('First Digit')
+        plt.ylabel('Frequency')
+        plt.legend()
+        out_benford = csv_file.replace('.csv', '_benford.png')
+        plt.savefig(out_benford, dpi=200, bbox_inches='tight')
+        plt.close()
+        print(f'Benford plot saved: {out_benford}')
+
+    mark_processed(csv_file, cache)
+
+
+# ---------------------------------------------------------------------------
+# Doublet runic analysis: load CSV produced by C++ and analyze
+# ---------------------------------------------------------------------------
+
+def load_doublet_csv(path: str) -> pd.DataFrame:
+    if not os.path.exists(path):
+        print(f"Doublet CSV not found: {path}")
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    return df
+
+
+def analyze_doublet_overview(df: pd.DataFrame, out_dir: str) -> None:
+    """Produce summary CSVs and simple plots: histogram of doublet ratios, top runes, run-length distribution."""
+    if df.empty: return
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Histogram of doublet ratios
+    plt.figure(figsize=(10,6))
+    sns.histplot(df['DoubletRatio'].dropna(), bins=50, color='#4e79a7')
+    plt.title('Distribution of Doublet Ratios (per page)')
+    plt.xlabel('Doublet Ratio')
+    plt.savefig(os.path.join(out_dir, 'doublet_ratio_hist.png'), dpi=200, bbox_inches='tight')
+    plt.close()
+
+    # Top runes by total doublet occurrences
+    rune_totals = {}
+    for s in df['DoubletRuneCounts'].dropna().astype(str):
+        s = s.strip('{}')
+        if not s: continue
+        for part in s.split(';'):
+            k,v = part.split(':')
+            rune = int(k); cnt = int(v)
+            rune_totals[rune] = rune_totals.get(rune,0) + cnt
+    rune_series = pd.Series(rune_totals).sort_values(ascending=False)
+    rune_series.to_csv(os.path.join(out_dir, 'doublet_rune_totals.csv'), header=['Count'])
+
+    plt.figure(figsize=(10,6))
+    rune_series.head(30).plot(kind='bar', color='#e15759')
+    plt.title('Top runes by doublet occurrences (global)')
+    plt.xlabel('Rune Index')
+    plt.ylabel('Doublet Count')
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'doublet_top_runes.png'), dpi=200)
+    plt.close()
+
+    # Run-length distribution
+    runs = []
+    for s in df['RunLengths'].dropna().astype(str):
+        if s.strip() == '': continue
+        for v in s.split(';'):
+            runs.append(int(v))
+    if runs:
+        plt.figure(figsize=(10,6))
+        sns.histplot(runs, bins=range(1, max(runs)+2), color='#76b7b2')
+        plt.title('Run lengths distribution (consecutive repeated runes)')
+        plt.xlabel('Run length')
+        plt.ylabel('Occurrences')
+        plt.savefig(os.path.join(out_dir, 'doublet_run_lengths.png'), dpi=200, bbox_inches='tight')
+        plt.close()
+
+
+def build_transition_matrix(df: pd.DataFrame):
+    """Aggregate bigram counts from the CSV into a 29x29 matrix and return matrix and labels."""
+    mat = np.zeros((29,29), dtype=int)
+    pages = []
+    for _, row in df.iterrows():
+        pages.append(row['Page'])
+        s = str(row['BigramCounts']).strip('{}')
+        if s == '': continue
+        for part in s.split(';'):
+            if not part: continue
+            kv = part.split(':')
+            pair = kv[0]; cnt = int(kv[1])
+            a,b = pair.split('-')
+            ai = int(a); bi = int(b)
+            if 0 <= ai < 29 and 0 <= bi < 29:
+                mat[ai,bi] += cnt
+    return mat, pages
+
+
+def plot_transition_heatmap(mat: np.ndarray, out_path: str) -> None:
+    plt.figure(figsize=(10,8))
+    sns.heatmap(mat, cmap='magma', square=True)
+    plt.title('Aggregated Rune Transition Counts (bigram)')
+    plt.xlabel('Next rune')
+    plt.ylabel('Current rune')
+    plt.savefig(out_path, dpi=300, bbox_inches='tight')
+    plt.close()
+
+
+def analyze_doublet_sequences(df: pd.DataFrame, out_dir: str) -> None:
+    os.makedirs(out_dir, exist_ok=True)
+    mat, pages = build_transition_matrix(df)
+    np.savetxt(os.path.join(out_dir, 'bigram_matrix.csv'), mat, delimiter=',', fmt='%d')
+    plot_transition_heatmap(mat, os.path.join(out_dir, 'bigram_heatmap.png'))
+
+    # Normalize to transition probabilities per-row and save
+    row_sums = mat.sum(axis=1, keepdims=True)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        prob = np.divide(mat, row_sums, out=np.zeros(mat.shape, dtype=float), where=row_sums!=0)
+    np.savetxt(os.path.join(out_dir, 'bigram_prob_matrix.csv'), prob, delimiter=',', fmt='%.6f')
+
+    # For resolved vs unresolved comparison, try to use page_features.csv if available
+    features_path = os.path.join(os.path.dirname(out_dir), 'page_features.csv')
+    resolved_mask = None
+    if os.path.exists(features_path):
+        feats = pd.read_csv(features_path, index_col=0)
+        resolved = []
+        for p in pages:
+            if p in feats.index:
+                # assume a column 'Known' exists or infer from IoC/heuristics: use has_known_solution mapping
+                resolved.append(bool(feats.loc[p].get('Known', False)))
+            else:
+                resolved.append(False)
+        resolved_mask = np.array(resolved, dtype=bool)
+
+    # If we have resolved mask, aggregate separate matrices
+    if resolved_mask is not None and resolved_mask.any():
+        # rebuild per-page matrices and sum
+        resolved_mat = np.zeros_like(mat)
+        unresolved_mat = np.zeros_like(mat)
+        for i, p in enumerate(pages):
+            row = df.iloc[i]
+            s = str(row['BigramCounts']).strip('{}')
+            local = np.zeros_like(mat)
+            if s != '':
+                for part in s.split(';'):
+                    if not part: continue
+                    kv = part.split(':')
+                    pair = kv[0]; cnt = int(kv[1])
+                    a,b = pair.split('-')
+                    ai = int(a); bi = int(b)
+                    local[ai,bi] += cnt
+            if resolved_mask[i]: resolved_mat += local
+            else: unresolved_mat += local
+
+        plot_transition_heatmap(resolved_mat, os.path.join(out_dir, 'bigram_heatmap_resolved.png'))
+        plot_transition_heatmap(unresolved_mat, os.path.join(out_dir, 'bigram_heatmap_unresolved.png'))
+
+
+def run_doublet_analysis_pipeline(cache: dict = None):
+    if cache is None: cache = _load_cache()
+    path = os.path.join('..', 'output', 'doublet_data.csv')
+    if not needs_processing(path, cache):
+        return
+    df = load_doublet_csv(path)
+    if df.empty:
+        return
+    out_dir = os.path.join('..', 'output', 'doublet_analysis')
+    analyze_doublet_overview(df, out_dir)
+    analyze_doublet_sequences(df, out_dir)
+    mark_processed(path, cache)
 
 # ---------------------------------------------------------------------------
 # plot_unigram_distribution — liber_unigram_target.csv
@@ -497,7 +726,7 @@ def plot_heuristic_summary(csv_file: str, cache: dict) -> None:
     plt.close()
     print(f"Heuristic dashboard saved: {out}")
 
-    # Comprimentos de chave Vigenère
+    # Vigenère key lengths
     if "BestVigenereKeyLen" in df.columns:
         vigenere_pages = df[df["BestVigenereKeyLen"] > 0].sort_values("BestVigenereKeyLen")
         if not vigenere_pages.empty:
@@ -536,23 +765,23 @@ def plot_key_stream_analysis(csv_file: str, cache: dict) -> None:
     if n_pages == 0:
         return
 
-    max_pages_to_plot = 10 # Limita a 10 páginas por imagem para evitar DecompressionBombError
+    max_pages_to_plot = 10 # Limit to 10 pages per image to avoid DecompressionBombError
     pages_to_plot = pages[:max_pages_to_plot]
     
     if n_pages > max_pages_to_plot:
         print(f"Warning: Only plotting the first {max_pages_to_plot} of {n_pages} pages in key stream analysis to prevent image size issues.")
 
     fig, axes = plt.subplots(len(pages_to_plot), 2, figsize=(16, 4 * len(pages_to_plot)), squeeze=False)
-    fig.suptitle("Análise da Key Stream (Páginas Resolvidas)", fontsize=15, y=1.01)
+    fig.suptitle("Key Stream Analysis (Solved Pages)", fontsize=15, y=1.01)
 
-    # Itera apenas sobre as páginas selecionadas para plotar
+    # Iterate only over selected pages to plot
     for i, page in enumerate(pages_to_plot):
         page_data = df[df["Page"] == page]
         # Filter out "UNRESOLVED" markers before converting to float
         numeric_series = page_data[page_data["KeyValue"] != "UNRESOLVED"]["KeyValue"]
         stream = numeric_series.values.astype(float)
         if len(stream) < 10:
-            axes[i][0].set_title(f"{page} — stream muito curta")
+            axes[i][0].set_title(f"{page} — stream too short")
             axes[i][1].set_title("")
             continue
 
@@ -571,9 +800,9 @@ def plot_key_stream_analysis(csv_file: str, cache: dict) -> None:
         axes[i][0].axhline(y=0,     color="black", linewidth=0.8)
         axes[i][0].axhline(y= conf, color="red", linestyle="--", alpha=0.5, label=f"±95% ({conf:.3f})")
         axes[i][0].axhline(y=-conf, color="red", linestyle="--", alpha=0.5)
-        axes[i][0].set_title(f"{page} — Autocorrelação da Key Stream", fontsize=11)
+        axes[i][0].set_title(f"{page} — Key Stream Autocorrelation", fontsize=11)
         axes[i][0].set_xlabel("Lag")
-        axes[i][0].set_ylabel("Correlação")
+        axes[i][0].set_ylabel("Correlation")
         axes[i][0].legend(fontsize=8)
 
         fft_vals          = np.abs(np.fft.rfft(stream - stream.mean()))
@@ -587,10 +816,10 @@ def plot_key_stream_analysis(csv_file: str, cache: dict) -> None:
         if dominant_freq_idx < len(freqs):
             axes[i][1].axvline(
                 x=freqs[dominant_freq_idx], color="red", linestyle="--", alpha=0.7,
-                label=f"Período dominante: {dominant_period}",
+                label=f"Dominant period: {dominant_period}",
             )
-        axes[i][1].set_title(f"{page} — FFT da Key Stream", fontsize=11)
-        axes[i][1].set_xlabel("Frequência")
+        axes[i][1].set_title(f"{page} — Key Stream FFT", fontsize=11)
+        axes[i][1].set_xlabel("Frequency")
         axes[i][1].set_ylabel("Magnitude")
         axes[i][1].legend(fontsize=8)
 
@@ -603,7 +832,7 @@ def plot_key_stream_analysis(csv_file: str, cache: dict) -> None:
     mark_processed(csv_file, cache)
 
 # ---------------------------------------------------------------------------
-# plot_page_features — page_features.csv  ← NOVO: não existia antes
+# plot_page_features — page_features.csv  ← NEW
 # ---------------------------------------------------------------------------
 
 def plot_page_features(csv_file: str, cache: dict) -> None:
@@ -617,78 +846,129 @@ def plot_page_features(csv_file: str, cache: dict) -> None:
     if df.empty:
         return
 
-    # 1. Scatter IoC × Entropy colorido por Fitness
+    # 1. Scatter IoC × Entropy colored by Fitness
     plt.figure(figsize=(12, 8))
+    s = df.get('Fitness', None)
+    sizes = None
+    if 'Length' in df.columns and df['Length'].max() > 0:
+        sizes = df['Length'] / df['Length'].max() * 300 + 40
+    else:
+        sizes = 80
     sc = plt.scatter(
-        df["IoC"], df["Entropy"],
-        c=df["Fitness"], cmap="viridis", s=df["Length"] / df["Length"].max() * 300 + 40,
-        alpha=0.8, edgecolors="white", linewidth=0.4,
+        df['IoC'], df['Entropy'],
+        c=s if s is not None else 'gray', cmap='viridis', s=sizes,
+        alpha=0.85, edgecolors='white', linewidth=0.4,
     )
-    plt.colorbar(sc, label="Fitness Score")
-    plt.axvline(x=0.034, color="red",   linestyle="--", alpha=0.4, label="Random IoC")
-    plt.axvline(x=0.067, color="green", linestyle="--", alpha=0.4, label="Plaintext IoC")
+    if s is not None:
+        plt.colorbar(sc, label='Fitness Score')
+    plt.axvline(x=0.034, color='red', linestyle='--', alpha=0.6, label='Random IoC')
+    plt.axvline(x=0.067, color='green', linestyle='--', alpha=0.6, label='Plaintext IoC')
     for _, row in df.iterrows():
-        plt.annotate(str(row["Page"]), (row["IoC"], row["Entropy"]), fontsize=7, alpha=0.8)
-    plt.title("Cripto-Assinatura: Entropia vs Index of Coincidence", fontsize=14)
-    plt.xlabel("Index of Coincidence (IoC)")
-    plt.ylabel("Entropia (Bits por Runa)")
+        try:
+            plt.annotate(str(row['Page']), (row['IoC'], row['Entropy']), fontsize=7, alpha=0.8)
+        except Exception:
+            pass
+    plt.title('Crypto-Signature: Entropy vs Index of Coincidence', fontsize=14)
+    plt.xlabel('Index of Coincidence (IoC)')
+    plt.ylabel('Entropy (Bits per Rune)')
     plt.legend()
     plt.grid(True, alpha=0.2)
-    out_scatter = csv_file.replace(".csv", "_entropy_ioc.png")
-    plt.savefig(out_scatter, dpi=300, bbox_inches="tight")
+    out_scatter = csv_file.replace('.csv', '_entropy_ioc.png')
+    plt.savefig(out_scatter, dpi=300, bbox_inches='tight')
     plt.close()
-    print(f"Plot Entropia vs IoC salvo: {out_scatter}")
+    print(f'Plot Entropy vs IoC saved: {out_scatter}')
 
-    # 2. Fitness ranking (barras)
-    df_sorted = df.sort_values("Fitness", ascending=False)
-    plt.figure(figsize=(14, max(6, len(df_sorted) * 0.35)))
-    plt.barh(df_sorted["Page"].astype(str), df_sorted["Fitness"], color="#4e79a7")
-    plt.xlabel("Advanced Fitness Score")
-    plt.title("Ranking de Fitness por Página")
-    plt.tight_layout()
-    out_fit = csv_file.replace(".csv", "_fitness_ranking.png")
-    plt.savefig(out_fit, dpi=200, bbox_inches="tight")
-    plt.close()
-    print(f"Fitness ranking salvo: {out_fit}")
+    # 2. Fitness ranking (bars)
+    if 'Fitness' in df.columns:
+        df_sorted = df.sort_values('Fitness', ascending=False)
+        plt.figure(figsize=(14, max(6, len(df_sorted) * 0.35)))
+        plt.barh(df_sorted['Page'].astype(str), df_sorted['Fitness'], color='#4e79a7')
+        plt.xlabel('Advanced Fitness Score')
+        plt.title('Fitness Ranking per Page')
+        plt.tight_layout()
+        out_fit = csv_file.replace('.csv', '_fitness_ranking.png')
+        plt.savefig(out_fit, dpi=200, bbox_inches='tight')
+        plt.close()
+        print(f'Fitness ranking saved: {out_fit}')
 
-    # 3. Chi-Square ranking
-    if "ChiSquare" in df.columns:
-        df_chi = df.sort_values("ChiSquare", ascending=False)
+    # 3. Optional Parallel Coordinates (plotly) — expanded for high-density detail
+    try:
+        potential_cols = [
+            'Length', 'IoC', 'Entropy', 'ChiSquare', 'Fitness', 
+            'BigramIoC', 'NumInterrupts', 'GpsSumMean', 'TopDelta', 'LRS'
+        ]
+        cols_to_use = [c for c in potential_cols if c in df.columns]
+        
+        if len(cols_to_use) > 2:
+            import plotly.express as px
+            
+            df_plot = df.copy()
+            # Add Page Number axis for easier identification of which line is which page
+            if 'Page' in df_plot.columns:
+                df_plot['PageNum'] = df_plot['Page'].apply(
+                    lambda x: int(re.findall(r'\d+', str(x))[0]) if re.findall(r'\d+', str(x)) else 0
+                )
+                if 'PageNum' not in cols_to_use:
+                    cols_to_use.insert(0, 'PageNum')
+
+            fig = px.parallel_coordinates(
+                df_plot, 
+                color='Fitness' if 'Fitness' in df_plot.columns else None,
+                dimensions=cols_to_use,
+                color_continuous_scale=px.colors.sequential.Plasma,
+                title='Liber Primus: Multi-Dimensional Page Metrics Analysis (Absolute Values)'
+            )
+            
+            fig.update_layout(
+                height=850,
+                margin=dict(l=80, r=80, t=100, b=80),
+                font=dict(size=12)
+            )
+
+            out_parallel = csv_file.replace('.csv', '_parallel.html')
+            fig.write_html(out_parallel)
+            print(f'Parallel coordinates saved (HTML): {out_parallel}')
+    except Exception as e:
+        print(f'Error in parallel plot: {e}')
+
+    # 4. Chi-Square ranking
+    if 'ChiSquare' in df.columns:
+        df_chi = df.sort_values('ChiSquare', ascending=False)
         plt.figure(figsize=(14, max(6, len(df_chi) * 0.35)))
-        plt.barh(df_chi["Page"].astype(str), df_chi["ChiSquare"], color="#e15759")
-        plt.xlabel("Chi-Square (distância da uniforme)")
-        plt.title("Ranking Chi-Square por Página (maior = mais longe do ruído)")
+        plt.barh(df_chi['Page'].astype(str), df_chi['ChiSquare'], color='#e15759')
+        plt.xlabel('Chi-Square (distance from uniform)')
+        plt.title('Chi-Square Ranking per Page (higher = further from noise)')
         plt.tight_layout()
-        out_chi = csv_file.replace(".csv", "_chi_ranking.png")
-        plt.savefig(out_chi, dpi=200, bbox_inches="tight")
+        out_chi = csv_file.replace('.csv', '_chi_ranking.png')
+        plt.savefig(out_chi, dpi=200, bbox_inches='tight')
         plt.close()
-        print(f"Chi-Square ranking salvo: {out_chi}")
+        print(f'Chi-Square ranking saved: {out_chi}')
 
-    # 4. GPS Sum Mean
-    if "GpsSumMean" in df.columns:
-        df_gps = df.sort_values("GpsSumMean", ascending=False)
+    # 5. GP Sum Mean
+    if 'GpsSumMean' in df.columns:
+        df_gps = df.sort_values('GpsSumMean', ascending=False)
         plt.figure(figsize=(14, max(6, len(df_gps) * 0.35)))
-        plt.barh(df_gps["Page"].astype(str), df_gps["GpsSumMean"], color="#76b7b2")
-        plt.xlabel("GP Sum Mean (valor médio das palavras)")
-        plt.title("GP Sum por Página")
+        plt.barh(df_gps['Page'].astype(str), df_gps['GpsSumMean'], color='#76b7b2')
+        plt.xlabel('GP Sum Mean (average word value)')
+        plt.title('GP Sum per Page')
         plt.tight_layout()
-        out_gps = csv_file.replace(".csv", "_gps_mean.png")
-        plt.savefig(out_gps, dpi=200, bbox_inches="tight")
+        out_gps = csv_file.replace('.csv', '_gps_mean.png')
+        plt.savefig(out_gps, dpi=200, bbox_inches='tight')
         plt.close()
-        print(f"GPS Sum ranking salvo: {out_gps}")
+        print(f'GPS Sum ranking saved: {out_gps}')
 
-    # 5. BigramIoC
-    if "BigramIoC" in df.columns:
-        df_b = df.sort_values("BigramIoC", ascending=False)
+    # 6. BigramIoC
+    if 'BigramIoC' in df.columns:
+        df_b = df.sort_values('BigramIoC', ascending=False)
         plt.figure(figsize=(14, max(6, len(df_b) * 0.35)))
-        plt.barh(df_b["Page"].astype(str), df_b["BigramIoC"], color="#f1ce63")
-        plt.xlabel("Bigram IoC")
-        plt.title("Bigram Index of Coincidence por Página")
+        plt.barh(df_b['Page'].astype(str), df_b['BigramIoC'], color='#f1ce63')
+        plt.xlabel('Bigram IoC')
+        plt.title('Bigram Index of Coincidence per Page')
         plt.tight_layout()
-        out_b = csv_file.replace(".csv", "_bigram_ioc.png")
-        plt.savefig(out_b, dpi=200, bbox_inches="tight")
+        out_b = csv_file.replace('.csv', '_bigram_ioc.png')
+        plt.savefig(out_b, dpi=200, bbox_inches='tight')
         plt.close()
-        print(f"Bigram IoC ranking salvo: {out_b}")
+        print(f'Bigram IoC ranking saved: {out_b}')
 
     mark_processed(csv_file, cache)
 
@@ -727,7 +1007,7 @@ def plot_friedman_scan(csv_file: str, cache: dict) -> None:
     mark_processed(csv_file, cache)
 
 # ---------------------------------------------------------------------------
-# plot_cluster_mutual_ioc — cluster_mutual_ioc.csv  ← NOVO
+# plot_cluster_mutual_ioc — cluster_mutual_ioc.csv  ← NEW
 # ---------------------------------------------------------------------------
 
 def plot_cluster_mutual_ioc(csv_file: str, cache: dict) -> None:
@@ -767,7 +1047,7 @@ def plot_cluster_mutual_ioc(csv_file: str, cache: dict) -> None:
         linewidths=0.4
     )
 
-    plt.title("Mutual IoC entre Páginas do Cluster")
+    plt.title("Mutual IoC between Cluster Pages")
     plt.tight_layout()
 
     out = csv_file.replace(".csv", "_heatmap.png")
@@ -826,9 +1106,9 @@ def plot_rolling_ioc_from_csv(csv_file: str, cache: dict) -> None:
         plt.xlabel("Window position (starting rune)")
         plt.ylabel("Index of Coincidence")
         plt.legend(loc="upper right")
-        plt.ylim(0.0, 0.15) # Zoom out para ver referências com mais perspectiva
+        plt.ylim(0.0, 0.15) # Zoom out to see references with more perspective
         plt.grid(True, alpha=0.3)
-        # Sanitização de nome de arquivo para evitar problemas com caracteres especiais
+        # Filename sanitization to avoid issues with special characters
         clean_name = re.sub(r'[^\w\-_\.]', '_', page)
         plt.savefig(
             os.path.join(out_dir, f"ioc_{clean_name}.png"), dpi=150, bbox_inches="tight"
@@ -869,7 +1149,7 @@ def plot_kasiski_summary(txt_file: str, cache: dict) -> None:
 
     plt.figure(figsize=(12, 5))
     plt.bar([str(l) for l in labels], values, color="#4e79a7")
-    plt.xlabel("GCD dos Deltas")
+    plt.xlabel("GCD of Deltas")
     plt.ylabel("Occurrences")
     plt.title("Kasiski: Distribution of GCDs (candidate key lengths)")
     plt.tight_layout()
@@ -886,7 +1166,7 @@ def plot_kasiski_summary(txt_file: str, cache: dict) -> None:
 
 def plot_entropy_vs_ioc(heuristic_csv: str, analysis_txt: str, cache: dict) -> None:
     key = f"{heuristic_csv}|{analysis_txt}"
-    # Cache baseado nos dois arquivos de entrada
+    # Cache based on the two input files
     h_changed   = needs_processing(heuristic_csv, cache)
     txt_changed  = needs_processing(analysis_txt, cache)
     if not h_changed and not txt_changed:
@@ -923,14 +1203,14 @@ def plot_entropy_vs_ioc(heuristic_csv: str, analysis_txt: str, cache: dict) -> N
     plt.axvline(x=0.067, color="g", linestyle="--", alpha=0.3, label="Plaintext IoC")
     for i, txt in enumerate(h_df["Page"]):
         plt.annotate(txt, (h_df["IoC"].iloc[i], h_df["Entropy"].iloc[i]), fontsize=8, alpha=0.8)
-    plt.title("Cripto-Assinatura: Entropia vs Index of Coincidence", fontsize=14)
+    plt.title("Crypto-Signature: Entropy vs Index of Coincidence", fontsize=14)
     plt.xlabel("Index of Coincidence (IoC)")
-    plt.ylabel("Entropia (Bits por Runa)")
+    plt.ylabel("Entropy (Bits per Rune)")
     plt.grid(True, alpha=0.2)
     out = heuristic_csv.replace(".csv", "_entropy_ioc.png")
     plt.savefig(out, dpi=300, bbox_inches="tight")
     plt.close()
-    print(f"Plot Entropia vs IoC salvo: {out}")
+    print(f"Plot Entropy vs IoC saved: {out}")
 
     mark_processed(heuristic_csv, cache)
     mark_processed(analysis_txt, cache)
@@ -954,7 +1234,7 @@ def plot_zipf_law_analysis(csv_file: str, cache: dict) -> None:
     plt.loglog(ranks, freqs[0] / ranks, linestyle="--", color="gray", alpha=0.5, label="Ideal Zipf (s=1)")
     plt.title("Zipf Analysis (Resolved Pages)", fontsize=14)
     plt.xlabel("Rank (Log)")
-    plt.ylabel("Frequência (Log)")
+    plt.ylabel("Frequency (Log)")
     plt.legend()
     plt.grid(True, which="both", ls="-", alpha=0.1)
     out = csv_file.replace(".csv", "_zipf.png")
@@ -962,7 +1242,7 @@ def plot_zipf_law_analysis(csv_file: str, cache: dict) -> None:
     plt.close()
     print(f"Zipf analysis saved: {out}")
 
-    # Não chama mark_processed aqui pois plot_unigram_distribution já o fez/fará
+    # Do not call mark_processed here as plot_unigram_distribution already does/will do it
 
 # ---------------------------------------------------------------------------
 # plot_delta_autocorrelation — delta_autocorrelation.csv (NOVO)
@@ -991,13 +1271,13 @@ def plot_delta_autocorrelation(csv_file: str, cache: dict) -> None:
         for mult in range(29, max_lag + 1, 29):
             plt.axvline(x=mult, color="orange", linestyle="--", alpha=0.5)
             
-        # Destacar o lag com o maior score (ignorando lag 1 e 2 que costumam ser ruído de doublet)
+        # Highlight lag with highest score (ignoring lag 1 and 2 which are usually doublet noise)
         valid_lags = grp[grp["Lag"] > 2]
         if not valid_lags.empty:
             best_lag = valid_lags.loc[valid_lags["Score"].idxmax()]
-            if best_lag["Score"] > 0.05: # Threshold sensível
+            if best_lag["Score"] > 0.05: # Sensitive threshold
                 plt.axvline(x=best_lag["Lag"], color="red", linestyle=":", alpha=0.8, 
-                            label=f"Pico: Lag {int(best_lag['Lag'])} (Score: {best_lag['Score']:.3f})")
+                            label=f"Peak: Lag {int(best_lag['Lag'])} (Score: {best_lag['Score']:.3f})")
                 plt.legend()
 
         plt.title(f"Delta Autocorrelation (Crypto-Periodicity): {page_name}", fontsize=13)
@@ -1028,7 +1308,7 @@ def plot_delta_stream_dist(csv_file: str, cache: dict) -> None:
     if df.empty:
         return
 
-    # Histograma Global de Deltas
+    # Global Delta Histogram
     plt.figure(figsize=(10, 5))
     sns.countplot(data=df, x="Delta", hue="Delta", palette="viridis", legend=False)
     plt.title("Global Distribution of Delta Stream Values (0-28)", fontsize=14)
@@ -1043,18 +1323,64 @@ def plot_delta_stream_dist(csv_file: str, cache: dict) -> None:
     mark_processed(csv_file, cache)
 
 # ---------------------------------------------------------------------------
+# plot_secrets_analysis — cuneiform_stream.csv & secrets_matrices.csv (NOVO)
+# ---------------------------------------------------------------------------
+
+def plot_secrets_analysis(output_dir: str, cache: dict) -> None:
+    cun_path = os.path.join(output_dir, "cuneiform_stream.csv")
+    mat_path = os.path.join(output_dir, "secrets_matrices.csv")
+
+    # Plot Cuneiform Stream
+    if os.path.exists(cun_path) and needs_processing(cun_path, cache):
+        df = pd.read_csv(cun_path)
+        plt.figure(figsize=(15, 5))
+        plt.plot(df["Index"], df["Decimal"], color="darkgreen", marker=".", markersize=4, alpha=0.6)
+        plt.title("Cuneiform Stream (Base60 to Decimal)", fontsize=14)
+        plt.xlabel("Index")
+        plt.ylabel("Value")
+        plt.grid(True, alpha=0.3)
+        out_img = cun_path.replace(".csv", "_plot.png")
+        plt.savefig(out_img, dpi=200, bbox_inches="tight")
+        plt.close()
+        mark_processed(cun_path, cache)
+
+    # Plot Matrices as Heatmaps
+    if os.path.exists(mat_path) and needs_processing(mat_path, cache):
+        df_mat = pd.read_csv(mat_path)
+        for m_id in df_mat["MatrixID"].unique():
+            subset = df_mat[df_mat["MatrixID"] == m_id]
+            pivot = subset.pivot(index="Row", columns="Col", values="Value")
+            plt.figure(figsize=(6, 5))
+            sns.heatmap(pivot, annot=True, fmt="d", cmap="YlGnBu", cbar=False)
+            plt.title(f"Secret Matrix #{m_id}", fontsize=12)
+            plt.savefig(os.path.join(output_dir, f"secret_matrix_{m_id}.png"), dpi=150)
+            plt.close()
+        mark_processed(mat_path, cache)
+
+    # Plot Hash Nibble Distribution
+    hash_path = os.path.join(output_dir, "deep_hash_distribution.csv")
+    if os.path.exists(hash_path) and needs_processing(hash_path, cache):
+        df_h = pd.read_csv(hash_path)
+        plt.figure(figsize=(10, 4))
+        sns.barplot(data=df_h, x="Nibble", y="Count", hue="Nibble", palette="viridis", legend=False)
+        plt.title("Nibble Distribution of DEEP_HASH", fontsize=12)
+        plt.savefig(os.path.join(output_dir, "deep_hash_plot.png"), dpi=150)
+        plt.close()
+        mark_processed(hash_path, cache)
+
+# ---------------------------------------------------------------------------
 # generate_master_summary — todos os .txt
 # ---------------------------------------------------------------------------
 
 def generate_master_summary(output_dir: str, cache: dict) -> None:
     txt_files    = glob.glob(os.path.join(output_dir, "*.txt"))
     summary_path = os.path.join(output_dir, "MASTER_RESEARCH_SUMMARY.log")
-    keywords     = ["HIT", "Anomaly", "[!]", "STRONG", "Cluster found", "Pattern ["]
+    keywords     = ["HIT", "Anomaly", "[!]", "STRONG", "Cluster found", "Pattern [", "KeyLen", "Fitness=0.9", "GCD", "Cluster #"]
 
-    # Verifica se algum txt mudou antes de regenerar
+    # Check if any txt changed before regenerating
     any_changed = any(needs_processing(p, cache) for p in txt_files)
     if not any_changed:
-        print("[CACHE HIT] MASTER_RESEARCH_SUMMARY — no .txt changed, skipping.")
+        print("[CACHE HIT] MASTER_RESEARCH_SUMMARY - no .txt changed, skipping.")
         return
 
     print(f"Generating master summary at {summary_path}...")
@@ -1064,25 +1390,60 @@ def generate_master_summary(output_dir: str, cache: dict) -> None:
 
         for f_path in txt_files:
             fname = os.path.basename(f_path)
-            if "MASTER_RESEARCH_SUMMARY" in fname or "_report.txt" in fname:
+            if "MASTER_RESEARCH_SUMMARY" in fname:
                 continue
-            master.write(f"\n>>> ARQUIVO: {fname}\n")
+            master.write(f"\n>>> FILE: {fname}\n")
             try:
                 with open(f_path, "r", encoding="utf-8") as f:
                     lines = f.readlines()
-                relevant = [l.strip() for l in lines if any(k in l for k in keywords)]
-                if relevant:
-                    master.write(f"Total points of interest: {len(relevant)}\n")
-                    for rl in relevant[:15]:
-                        master.write(f"  [LOG] {rl}\n")
-                    if len(relevant) > 15:
-                        master.write(f"  ... and {len(relevant)-15} more entries.\n")
+
+                if "_report.txt" in fname:
+                    master.write("--- Correlation Report Summary ---\n")
+                    report_keywords = [
+                        "Overall Mean Correlation:",
+                        "Modularity (Louvain):",
+                        "--- TOP 20 STRONGEST CORRELATIONS ---",
+                        "--- HUB PAGES",
+                        "--- STATISTICAL OUTLIERS",
+                        "--- PAGES FAR FROM PCA CENTER",
+                        "=== TOP SUSPICIOUS PAGES",
+                        "High Correlation Density",
+                    ]
+                    report_content = []
+                    capture_lines = False
+                    for line in lines:
+                        if any(k in line for k in report_keywords):
+                            capture_lines = True
+                            report_content.append(line.strip())
+                        elif capture_lines and (line.strip() == "" or line.strip().startswith("---") or line.strip().startswith("===")):
+                            capture_lines = False
+                        elif capture_lines:
+                            report_content.append(line.strip())
+                    
+                    if report_content:
+                        for rl in report_content:
+                            master.write(f"  [REPORT] {rl}\n")
+                    elif any(k in "".join(lines) for k in keywords):
+                        master.write("No key insights extracted from report.\n")
                 else:
-                    master.write("No immediate critical patterns detected.\n")
+                    # Captura a linha de contexto caso encontre um hit
+                    relevant = []
+                    for i, line in enumerate(lines):
+                        if any(k in line for k in keywords):
+                            relevant.append(line.strip())
+                    
+                    if relevant:
+                        master.write(f"Total points of interest: {len(relevant)}\n")
+                        for rl in relevant[:15]:
+                            master.write(f"  [LOG] {rl}\n")
+                        if len(relevant) > 15:
+                            master.write(f"  ... and {len(relevant)-15} more entries.\n")
+                    else:
+                        master.write("No immediate critical patterns detected.\n")
             except Exception as exc:
                 master.write(f"Error reading file: {exc}\n")
 
-    # Registra todos os txts como processados
+    # Register all txts as processed
     for p in txt_files:
         if os.path.exists(p):
             mark_processed(p, cache)
@@ -1098,62 +1459,70 @@ if __name__ == "__main__":
 
     print("Starting full data scan (with SHA-256 cache)...\n")
 
-    # --- CSVs de correlação ---
+    # --- Correlation CSVs ---
     for csv_path in glob.glob(os.path.join(OUTPUT_DIR, "corr_*.csv")):
         plot_correlation_matrix(csv_path, cache)
 
-    # --- Deltas de interrupções ---
+    # --- Interruption Deltas ---
     for csv_path in glob.glob(os.path.join(OUTPUT_DIR, "interrupt_deltas*.csv")):
         plot_delta_histograms(csv_path, cache)
 
-    # --- Distribuição unigrama alvo ---
+    # --- Target Unigram Distribution ---
     unigram_csv = os.path.join(OUTPUT_DIR, "liber_unigram_target.csv")
     plot_unigram_distribution(unigram_csv, cache)
     plot_zipf_law_analysis(unigram_csv, cache)
 
-    # --- Heurísticas de cifra ---
+    # --- Cipher Heuristics ---
     heuristic_csv = os.path.join(OUTPUT_DIR, "heuristic_scores.csv")
     plot_heuristic_summary(heuristic_csv, cache)
 
-    # --- Key stream ---
+    # --- Key Stream ---
     ks_csv = os.path.join(OUTPUT_DIR, "key_stream_analysis.csv")
     plot_key_stream_analysis(ks_csv, cache)
 
-    # --- Page features (novo) ---
+    # --- Page Features (new) ---
     feat_csv = os.path.join(OUTPUT_DIR, "page_features.csv")
     plot_page_features(feat_csv, cache)
 
-    # --- Friedman scan (novo) ---
+    # --- Friedman Scan (new) ---
     friedman_csv = os.path.join(OUTPUT_DIR, "friedman_scan.csv")
     plot_friedman_scan(friedman_csv, cache)
 
-    # --- Cluster Mutual IoC (novo) ---
+    # --- Cluster Mutual IoC (new) ---
     cluster_csv = os.path.join(OUTPUT_DIR, "cluster_mutual_ioc.csv")
     plot_cluster_mutual_ioc(cluster_csv, cache)
 
-    # --- Rolling IoC (CSV de dados completos) ---
+    # --- Rolling IoC (Full data CSV) ---
     rolling_ioc_csv = os.path.join(OUTPUT_DIR, "rolling_ioc_peaks.csv")
     plot_rolling_ioc_from_csv(rolling_ioc_csv, cache)
 
-    # --- Kasiski (log de texto, novo) ---
+    # --- Kasiski (text log, new) ---
     kasiski_txt = os.path.join(OUTPUT_DIR, "kasiski_results.txt")
     plot_kasiski_summary(kasiski_txt, cache)
 
-    # --- Entropia vs IoC cruzado ---
+    # --- Entropy vs Cross IoC ---
     analysis_txt = os.path.join(OUTPUT_DIR, "analysis.txt")
     plot_entropy_vs_ioc(heuristic_csv, analysis_txt, cache)
 
-    # --- Delta Stream e Autocorrelação (NOVO) ---
+    # --- Delta Stream and Autocorrelation (NEW) ---
     delta_stream_csv = os.path.join(OUTPUT_DIR, "delta_stream_analysis.csv")
     plot_delta_stream_dist(delta_stream_csv, cache)
 
     delta_autocorr_csv = os.path.join(OUTPUT_DIR, "delta_autocorrelation.csv")
     plot_delta_autocorrelation(delta_autocorr_csv, cache)
 
-    # --- Resumo mestre de todos os .txt ---
+    # --- Gematria Analysis (NEW) ---
+    gematria_csv = os.path.join(OUTPUT_DIR, "gematria_sums.csv")
+    plot_gematria_analysis(gematria_csv, cache)
+    
+    plot_secrets_analysis(OUTPUT_DIR, cache)
+
+    # --- Master analytical summary of all .txt ---
     generate_master_summary(OUTPUT_DIR, cache)
 
-    # Persiste o cache atualizado em disco
+    run_doublet_analysis_pipeline(cache)
+
+    # Persist updated cache to disk
     _save_cache(cache)
 
     print("\n[SUCCESS] All files have been processed. Cache updated on", CACHE_FILE)

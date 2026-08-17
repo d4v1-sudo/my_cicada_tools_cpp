@@ -36,6 +36,39 @@ namespace core
     };
 
     // -----------------------------------------------------------------------
+    // PrimeStreamTransformer: Applies shifts based on a stream of prime numbers
+    // -----------------------------------------------------------------------
+    enum class PrimeKeyDerivationMode {
+        PRIME_MINUS_ONE,        // Key = (prime - 1) % 29
+        PRIME,                  // Key = prime % 29
+        PRIME_PLUS_ONE,         // Key = (prime + 1) % 29
+        TOTIENT_PRIME_MINUS_ONE, // Key = φ(prime - 1) % 29
+        TOTIENT_PRIME           // Key = φ(prime) % 29
+    };
+
+    enum class PrimeOperation {
+        ADD,
+        SUBTRACT
+    };
+
+    class PrimeStreamTransformer : public Transformer {
+    public:
+        PrimeStreamTransformer(PrimeOperation op, PrimeKeyDerivationMode mode, 
+                               size_t initial_prime_idx = 0, 
+                               const std::set<size_t>& custom_interrupts = {},
+                               int tot_calls = 1, bool emirp = false);
+        void transform(ProcessedText& pt) override;
+    private:
+        PrimeOperation m_operation;
+        PrimeKeyDerivationMode m_mode;
+        size_t m_initial_prime_idx;
+        std::set<size_t> m_custom_interrupts;
+        int m_tot_calls;
+        bool m_emirp;
+        static int get_nth_prime(size_t n); // Uses G_PRIMES
+    };
+
+    // -----------------------------------------------------------------------
     // AtbashTransformer: idx -> (28 - idx + shift) % 29
     // -----------------------------------------------------------------------
     class AtbashTransformer : public Transformer
@@ -97,29 +130,6 @@ namespace core
     private:
         std::vector<int> m_sequence;
         std::set<size_t> m_interrupts;
-    };
-
-    // -----------------------------------------------------------------------
-    // TotientPrimeTransformer: shift = φ(p_n) or reversed prime (emirp)
-    // -----------------------------------------------------------------------
-    class TotientPrimeTransformer : public Transformer
-    {
-    public:
-    // add:              true = add shift, false = subtract
-    // interrupt_indices: rune positions to skip (prime counter still advances)
-    // tot_calls:         how many times to apply φ
-    // emirp:             use reversed prime digits instead of the prime
-        TotientPrimeTransformer(bool add = false,
-                                const std::vector<size_t>& interrupt_indices = {},
-                                int tot_calls = 1,
-                                bool emirp = false);
-        void transform(ProcessedText& pt) override;
-
-    private:
-        bool             m_add;
-        std::set<size_t> m_interrupts;
-        int              m_tot_calls;
-        bool             m_emirp;
     };
 
     // -----------------------------------------------------------------------

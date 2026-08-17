@@ -10,8 +10,8 @@ namespace core
     VigenereTransformer::VigenereTransformer(const std::string& utf8_key, 
                                            const std::vector<size_t>& interrupt_indices)
     {
-        ProcessedText temp(utf8_key);
-        m_key_indices = temp.indices();
+        auto maybe_indices = to_rune_indices(utf8_key);
+        if (maybe_indices) m_key_indices = *maybe_indices;
         for (auto idx : interrupt_indices) m_interrupts.insert(idx);
     }
 
@@ -60,7 +60,7 @@ namespace core
 
         for (size_t i = 0; i < indices.size(); ++i)
         {
-            if (indices[i] >= 29) { // It's a delimiter or special char — skip transformation
+            if (indices[i] >= 29) { // Delimiter or special char — skip transformation
                 continue; 
             }
 
@@ -72,7 +72,7 @@ namespace core
 
             // Decryption: (Index - SequenceValue) % 29
             int val = static_cast<int>(indices[i]);
-            int key = m_sequence[actual_rune_idx_in_sequence % m_sequence.size()]; // Usa actual_rune_idx_in_sequence
+            int key = m_sequence[actual_rune_idx_in_sequence % m_sequence.size()]; // Uses actual_rune_idx_in_sequence
             
             {
                 int tmp = (static_cast<int>(val) - static_cast<int>(key % 29) + 29) % 29;
@@ -103,10 +103,13 @@ namespace core
                     is_first = false;
                     continue; 
                 }
-                try {
-                    if (!item.empty())
-                        seq_entry.data.push_back(std::stoi(item));
-                } catch (...) {}
+                if (!item.empty()) {
+                    char* end;
+                    long val = std::strtol(item.c_str(), &end, 10);
+                    if (end != item.c_str()) {
+                        seq_entry.data.push_back(static_cast<int>(val));
+                    }
+                }
             }
 
             if (seq_entry.data.size() >= 10) {
@@ -116,53 +119,60 @@ namespace core
         return sequences;
     }
 
-    TotientPrimeTransformer::TotientPrimeTransformer(bool add, 
-                                                   const std::vector<size_t>& interrupt_indices, 
-                                                   int tot_calls, 
-                                                   bool emirp)
-        : m_add(add), m_tot_calls(tot_calls), m_emirp(emirp)
-    {
-        for (auto idx : interrupt_indices) m_interrupts.insert(idx);
-    }
+    PrimeStreamTransformer::PrimeStreamTransformer(PrimeOperation op, PrimeKeyDerivationMode mode, 
+                                                   size_t initial_prime_idx, 
+                                                   const std::set<size_t>& custom_interrupts,
+                                                   int tot_calls, bool emirp)
+        : m_operation(op), m_mode(mode), m_initial_prime_idx(initial_prime_idx), 
+          m_custom_interrupts(custom_interrupts), m_tot_calls(tot_calls), m_emirp(emirp) {}
 
-    void TotientPrimeTransformer::transform(ProcessedText& pt)
-    {
+    void PrimeStreamTransformer::transform(ProcessedText& pt) {
         auto& indices = pt.indices();
-        size_t actual_rune_idx_in_sequence = 0; // This counter advances only for runes
-        int curr_prime_for_runes = 2; // Prime counter that advances only for runes
+        size_t rune_pos = 0;
+        size_t prime_ptr = m_initial_prime_idx;
 
-        for (size_t i = 0; i < indices.size(); ++i)
-        {
-            if (indices[i] >= 29) { // It's a delimiter or special char — skip
+        for (size_t i = 0; i < indices.size(); ++i) {
+            if (indices[i] >= 29) continue;
+
+            if (m_custom_interrupts.count(rune_pos)) {
+                rune_pos++;
+                prime_ptr++; // Advance prime even on interrupt to match known solutions
                 continue;
             }
 
-            // It's a rune. Check interrupts by rune sequence position.
-            if (m_interrupts.count(actual_rune_idx_in_sequence)) {
-                actual_rune_idx_in_sequence++; // Interrupted rune — advance rune position
-                curr_prime_for_runes = find_next_prime(curr_prime_for_runes); // Advance prime counter as well
-                continue;
+            int p = (prime_ptr < G_PRIMES.size()) ? G_PRIMES[prime_ptr] : find_next_prime(G_PRIMES.back());
+            
+            if (m_emirp) p = reverse_digits(p);
+
+            int key_val = 0;
+            switch (m_mode) {
+                case PrimeKeyDerivationMode::PRIME: key_val = p; break;
+                case PrimeKeyDerivationMode::PRIME_MINUS_ONE: key_val = p - 1; break;
+                case PrimeKeyDerivationMode::PRIME_PLUS_ONE: key_val = p + 1; break;
+                case PrimeKeyDerivationMode::TOTIENT_PRIME: key_val = euler_totient(p); break;
+                case PrimeKeyDerivationMode::TOTIENT_PRIME_MINUS_ONE: key_val = euler_totient(p - 1); break;
             }
 
-            int val = m_emirp ? reverse_digits(curr_prime_for_runes) : curr_prime_for_runes;
-            if (m_tot_calls == 1 && !m_emirp) {
-                val -= 1; // Otimização: Totiente de um primo p é p-1
-            } else {
-                for (int k = 0; k < m_tot_calls; ++k) {
-                    val = euler_totient(val);
+            if (m_tot_calls > 1 || (m_tot_calls == 1 && m_mode == PrimeKeyDerivationMode::PRIME)) {
+                for (int k = 0; k < (m_mode == PrimeKeyDerivationMode::PRIME ? m_tot_calls : m_tot_calls - 1); ++k) {
+                    key_val = euler_totient(key_val);
                 }
             }
 
-            int shift = m_add ? val : -val;
+            int shift = (m_operation == PrimeOperation::ADD) ? (key_val % 29) : (-(key_val % 29));
             int current_idx = static_cast<int>(indices[i]);
-            {
-                int tmp = (current_idx + static_cast<int>(shift % 29) + 29) % 29;
-                indices[i] = static_cast<uint8_t>(tmp);
-            }
+            indices[i] = static_cast<uint8_t>((current_idx + shift + 29) % 29);
 
-            curr_prime_for_runes = find_next_prime(curr_prime_for_runes);
-            actual_rune_idx_in_sequence++;
+            prime_ptr++;
+            rune_pos++;
         }
+    }
+
+    int PrimeStreamTransformer::get_nth_prime(size_t n) {
+        if (n < G_PRIMES.size()) return G_PRIMES[n];
+        int p = G_PRIMES.empty() ? 2 : G_PRIMES.back();
+        for (size_t i = G_PRIMES.size(); i <= n; ++i) p = find_next_prime(p);
+        return p;
     }
 
     MobiusTransformer::MobiusTransformer(bool add, const std::vector<size_t>& interrupt_indices)
@@ -203,13 +213,13 @@ namespace core
         
         size_t i = 0;
         while (i < indices.size()) {
-            // Encontra o fim da palavra atual
+            // Find end of current word
             size_t word_end = i;
             while (word_end < indices.size() && indices[word_end] < 29) {
                 word_end++;
             }
 
-            // Offset rítmico: usa o offset da sequência baseado no contador de palavras
+            // Rhythmic offset: uses sequence offset based on word counter
             int current_offset = m_offsets[word_counter % m_offsets.size()];
 
             int n_arg = 0;
@@ -219,7 +229,7 @@ namespace core
                             (m_global_word_start + word_counter - 1 + current_offset) : 
                             (word_counter + current_offset);
                     break;
-                case MathArgumentMode::SECTION_WORD: // n = palavra dentro da seção (reset no §)
+                case MathArgumentMode::SECTION_WORD: // n = word within the section (reset at §)
                     n_arg = section_word_counter + current_offset; break;
                 case MathArgumentMode::GP_SUM: {
                     int sum = 0;
@@ -227,7 +237,7 @@ namespace core
                     n_arg = sum + current_offset;
                     break;
                 }
-                case MathArgumentMode::PAGE_INDEX: // n = índice da página (1, 2...)
+                case MathArgumentMode::PAGE_INDEX: // n = page index (1, 2...)
                     n_arg = static_cast<int>(pt.page_index()) + current_offset; break; 
                 default: n_arg = word_counter + current_offset; 
             } // End switch
@@ -252,10 +262,10 @@ namespace core
                 }
             }
 
-            // Lógica de avanço e reset de seções
+            // Section advance and reset logic
             if (word_end < indices.size()) {
                 if (indices[word_end] == SPECIAL_SECTION_IDX) {
-                    section_word_counter = 1; // Reset no §
+                    section_word_counter = 1; // Reset at §
                 }
                 
                 if (indices[word_end] == SPECIAL_HYPHEN_IDX || indices[word_end] == SPECIAL_SPACE_IDX || 
@@ -277,7 +287,7 @@ namespace core
         : m_key_permutation(key_permutation)
     {
         if (!m_key_permutation.empty()) {
-            // Validação: Verificar se é uma permutação válida de 0 a N-1
+            // Validation: Check if it is a valid permutation from 0 to N-1
             std::vector<size_t> check = m_key_permutation;
             std::sort(check.begin(), check.end());
             for (size_t i = 0; i < check.size(); ++i) {
@@ -311,7 +321,7 @@ namespace core
         std::vector<uint8_t> transposed(L);
         size_t write_idx = 0;
 
-        // Leitura Colunar
+        // Columnar Reading
         for (size_t col_idx : m_key_permutation) {
             for (size_t row = 0; row < R; ++row) {
                 size_t src_idx = row * K + col_idx;
@@ -365,10 +375,10 @@ namespace core
                                                    const std::vector<int>& skip_deltas,
                                                    size_t first_skip_index)
     {
-        ProcessedText temp(vigenere_key_utf8);
-        m_key_indices = temp.indices();
+        auto maybe_indices = to_rune_indices(vigenere_key_utf8);
+        if (maybe_indices) m_key_indices = *maybe_indices;
         
-        // Converte os deltas (distâncias) em posições absolutas de runas
+        // Converts deltas (distances) into absolute rune positions
         size_t current = first_skip_index;
         m_interrupts.insert(current);
         for (int d : skip_deltas) {
@@ -385,10 +395,10 @@ namespace core
         size_t key_ptr = 0;    // Ponteiro na chave Vigenère
 
         for (size_t i = 0; i < indices.size(); ++i) {
-            if (indices[i] >= 29) continue; // Pula caracteres especiais
+            if (indices[i] >= 29) continue; // Skips special characters
 
             if (m_interrupts.count(rune_pos)) {
-                rune_pos++; // É uma posição de skip: avança posição rúnica mas não a chave
+                rune_pos++; // Skip position: advance rune count but not key pointer
                 continue;
             }
 
@@ -411,8 +421,8 @@ namespace core
                                                            size_t first_skip_index)
         : m_deltas(rhythmic_deltas), m_first_skip(first_skip_index)
     {
-        ProcessedText temp(vigenere_key_utf8);
-        m_key_indices = temp.indices();
+        auto maybe_indices = to_rune_indices(vigenere_key_utf8);
+        if (maybe_indices) m_key_indices = *maybe_indices;
     }
 
     void RhythmicVigenereTransformer::transform(ProcessedText& pt)
@@ -427,12 +437,12 @@ namespace core
         for (size_t i = 0; i < indices.size(); ++i) {
             if (indices[i] >= 29) continue; 
 
-            // Se atingiu o ponto rítmico de interrupção
+            // Rhythmic interruption point reached
             if (rune_pos == next_skip_target && !m_deltas.empty()) {
                 next_skip_target += m_deltas[delta_ptr % m_deltas.size()];
                 delta_ptr++;
-                rune_pos++; // Consome a posição rúnica (é ruído)
-                continue;   // NÃO consome a chave Vigenère
+                rune_pos++; // Consumes rune position (noise)
+                continue;   // DO NOT consume Vigenère key
             }
 
             int val = static_cast<int>(indices[i]);
@@ -457,8 +467,8 @@ namespace core
         : m_fixed_interrupts(fixed_interrupts.begin(), fixed_interrupts.end()),
           m_deltas(rhythmic_deltas), m_first_skip(first_skip_index)
     {
-        ProcessedText temp(vigenere_key_utf8);
-        m_key_indices = temp.indices();
+        auto maybe_indices = to_rune_indices(vigenere_key_utf8);
+        if (maybe_indices) m_key_indices = *maybe_indices;
     }
 
     void HybridRhythmicVigenereTransformer::transform(ProcessedText& pt)
@@ -502,8 +512,8 @@ namespace core
     AutokeyTransformer::AutokeyTransformer(const std::string& utf8_seed, AutokeyMode mode)
         : m_mode(mode)
     {
-        ProcessedText temp(utf8_seed);
-        m_seed_indices = temp.indices();
+        auto maybe_indices = to_rune_indices(utf8_seed);
+        if (maybe_indices) m_seed_indices = *maybe_indices;
     }
 
     void AutokeyTransformer::transform(ProcessedText& pt)

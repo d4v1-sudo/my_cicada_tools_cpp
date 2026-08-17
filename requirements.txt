@@ -2,7 +2,7 @@ numpy
 pandas
 matplotlib
 seaborn
-sklearn
+scikit-learn
 streamlit
 scipy
 ruptures

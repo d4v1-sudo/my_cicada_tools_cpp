@@ -5,12 +5,15 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <string>
 #include <memory>
 #include <vector>
 #include <map>
 
 namespace core
 {
+    struct Page; // Forward declaration
+    class ProcessedText; // Forward declaration
 
 // ---------------------------------------------------------------------------
 // Rune table
@@ -97,7 +100,15 @@ int reverse_digits(int n);
 int mobius(int n);
 double kullback_leibler_divergence(const std::array<double, 29>& p, const std::array<double, 29>& q);
 
-// --- Known solutions registry (declared in pages.h) ---
+// Global list of primes for efficient lookup
+extern std::vector<int> G_PRIMES;
+void populate_primes_list(size_t limit);
+
+// --- Known solutions and logic (implemented in solutions.cpp) ---
+bool has_known_solution(size_t page_index);
+std::vector<size_t> get_possible_interrupters(size_t page_index);
+bool apply_known_solution(const Page& page, ProcessedText& pt);
+std::string get_solution_method(size_t page_index);
 
 struct Solution {
     std::string_view page_name;
@@ -111,23 +122,23 @@ void save_solution(const Solution& sol);
 // RuneDB — encapsulates lookup maps; initialized once via init_tables()
 // ---------------------------------------------------------------------------
 
-// Declaração da classe — definição em core.cpp
+// Class declaration — defined in core.cpp
 class RuneDB
 {
 public:
     static RuneDB& instance();
     ~RuneDB();
 
-    // Retorna nullopt se não encontrado
+    // Returns nullopt if not found
     std::optional<std::string_view> rune_to_latin(std::string_view rune)  const;
     std::optional<std::string_view> latin_to_rune(std::string_view latin) const;
     std::optional<uint16_t>         rune_to_prime(std::string_view rune)  const;
     std::optional<uint16_t>         latin_to_prime(std::string_view latin) const;
 
-    // Lookup por índice (0–28) — útil para iterar
+    // Lookup by index (0–28) — useful for iterating
     std::optional<const RuneEntry*> by_index(size_t idx) const noexcept;
 
-    // Métodos para obter índices puros para ProcessedText
+    // Methods to get raw indices for ProcessedText
     std::optional<size_t> get_index_rune(std::string_view rune) const;
     std::optional<size_t> get_index_latin(std::string_view latin) const;
 
@@ -147,11 +158,25 @@ private:
 // Compatible with original project style
 // ---------------------------------------------------------------------------
 
-void init_tables();   // chama RuneDB::instance() para forçar a construção
+void init_tables();   // calls RuneDB::instance() to force construction
 
 std::optional<std::string_view> to_latin(std::string_view rune);
 std::optional<std::string_view> to_rune (std::string_view latin);
 std::optional<uint16_t>         to_prime(std::string_view rune);
+
+// Convert an ASCII/Latin string (e.g. "DIVINITY" or "CIRCUMFERENCE") to
+// a UTF-8 runes string using the rune table. Returns nullopt on invalid input.
+std::optional<std::string> to_runes(std::string_view latin_text);
+
+// Convert an ASCII/Latin string (or a runes UTF-8 string) into rune indices
+// (0..28). Handles common linguistic bigrams like TH, NG, AE, etc.
+std::optional<std::vector<uint8_t>> to_rune_indices(std::string_view latin_or_runes);
+
+// Patch a textual key so that all occurrences of the first rune are
+// replaced by the latin representation of rune 0 and all others are left
+// as their latin representation. This mirrors the user's patch_key logic
+// used when working with discovered Vigenere candidate keys.
+std::string patch_key(const std::string& key);
 
 // ---------------------------------------------------------------------------
 // Namespace unsafe — no bounds checks, UB if key is missing.

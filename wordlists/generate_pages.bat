@@ -23,7 +23,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "    }" ^
     "}" ^
     "$header += $nl + '}};' + $nl + $nl + '} // namespace core' + $nl + $nl + '#endif // PAGES_H';" ^
-    "$header | Out-File -FilePath 'pages.h' -Encoding utf8"
+    "$Utf8NoBomEncoding = New-Object System.Text.UTF8Encoding($False);" ^
+    "[System.IO.File]::WriteAllText('pages.h', $header, $Utf8NoBomEncoding)"
 
 if %ERRORLEVEL% EQU 0 (
     echo Success: file pages.h generated.

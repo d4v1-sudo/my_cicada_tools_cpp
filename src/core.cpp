@@ -160,6 +160,20 @@ double kullback_leibler_divergence(const std::array<double, 29>& p, const std::a
     return div;
 }
 
+std::vector<int> G_PRIMES;
+
+void populate_primes_list(size_t limit) {
+    G_PRIMES.clear();
+    G_PRIMES.reserve(limit);
+    int p = 2;
+    while (G_PRIMES.size() < limit) {
+        if (is_prime(p)) {
+            G_PRIMES.push_back(p);
+        }
+        p++;
+    }
+}
+
 void save_solution(const Solution& sol) {
     std::ofstream file("../output/solutions_found.txt", std::ios::app);
     if (file.is_open()) {
@@ -177,7 +191,7 @@ void save_solution(const Solution& sol) {
 
 void init_tables()
 {
-    // Força a criação da instância estática
+    // Force creation of static instance
     RuneDB::instance();
 }
 
@@ -194,6 +208,91 @@ std::optional<std::string_view> to_rune(std::string_view latin)
 std::optional<uint16_t> to_prime(std::string_view rune)
 {
     return RuneDB::instance().rune_to_prime(rune);
+}
+
+std::optional<std::string> to_runes(std::string_view latin_text)
+{
+    // Build a runes string by scanning latin_text and mapping known bigrams
+    // or single-letter latin tokens to the rune UTF-8 sequence.
+    std::string res;
+    size_t i = 0;
+    while (i < latin_text.size()) {
+        // try two-letter bigram first
+        if (i + 1 < latin_text.size()) {
+            std::string_view two(latin_text.data() + i, 2);
+            auto r = RuneDB::instance().latin_to_rune(two);
+            if (r) { res += *r; i += 2; continue; }
+        }
+        // try single letter
+        std::string_view one(latin_text.data() + i, 1);
+        auto r = RuneDB::instance().latin_to_rune(one);
+        if (r) { res += *r; i += 1; continue; }
+
+        // Unknown token: reject
+        return std::nullopt;
+    }
+    return res;
+}
+
+std::optional<std::vector<uint8_t>> to_rune_indices(std::string_view latin_or_runes)
+{
+    // If the input contains non-ASCII (likely real runes), try to parse
+    // them as runes by constructing a ProcessedText and extracting indices.
+    bool looks_like_runes = false;
+    for (unsigned char c : latin_or_runes) if (c & 0x80) { looks_like_runes = true; break; }
+
+    if (looks_like_runes) {
+        ProcessedText pt(latin_or_runes);
+        std::vector<uint8_t> out;
+        for (auto idx : pt.indices()) if (idx < 29) out.push_back(idx);
+        return out;
+    }
+
+    // Otherwise treat as Latin text and map bigrams/single letters to indices
+    std::string upper_input;
+    upper_input.reserve(latin_or_runes.size());
+    for (unsigned char c : latin_or_runes) upper_input += static_cast<char>(std::toupper(c));
+
+    std::vector<uint8_t> out;
+    size_t i = 0;
+    while (i < upper_input.size()) {
+        if (i + 1 < upper_input.size()) {
+            std::string_view two(upper_input.data() + i, 2);
+            auto idx = RuneDB::instance().get_index_latin(two);
+            if (idx) { out.push_back(static_cast<uint8_t>(*idx)); i += 2; continue; }
+        }
+        std::string_view one(upper_input.data() + i, 1);
+        auto idx = RuneDB::instance().get_index_latin(one);
+        if (idx) { out.push_back(static_cast<uint8_t>(*idx)); i += 1; continue; }
+
+        return std::nullopt; // invalid char
+    }
+    return out;
+}
+
+std::string patch_key(const std::string& key)
+{
+    std::string new_key;
+
+    // obtain rune indices from the textual key. prefer parsing as Latin
+    auto maybe_indices = to_rune_indices(key);
+    if (!maybe_indices) return new_key;
+    const auto& rune_indices = *maybe_indices;
+
+    if (rune_indices.empty()) return new_key;
+
+    uint8_t first_rune_index = rune_indices[0];
+
+    for (size_t i = 0; i < rune_indices.size(); ++i) {
+        uint8_t idx = rune_indices[i];
+        if (idx == first_rune_index) {
+            new_key += RUNE_TABLE[0].latin; // rune 0 latin representation
+        } else {
+            new_key += RUNE_TABLE[idx].latin;
+        }
+    }
+
+    return new_key;
 }
 
 // --- ProcessedText Implementation ---
@@ -216,6 +315,7 @@ ProcessedText::ProcessedText(std::string_view utf8_runes, size_t page_idx) : m_p
 
         if (rune_idx) {
             m_indices.push_back(static_cast<uint8_t>(*rune_idx));
+            m_rune_count++;
         } else if (token == "-") { m_indices.push_back(SPECIAL_HYPHEN_IDX); }
         else if (token == ".") { m_indices.push_back(SPECIAL_PERIOD_IDX); }
         else if (token == "&") { m_indices.push_back(SPECIAL_AMPERSAND_IDX); }
@@ -246,11 +346,12 @@ ProcessedText::ProcessedText(std::string_view utf8_runes, size_t page_idx) : m_p
 std::vector<std::vector<uint8_t>> ProcessedText::get_words() const {
     std::vector<std::vector<uint8_t>> words;
     std::vector<uint8_t> current_word;
-    for (auto idx : m_indices) {
+    for (uint8_t idx : m_indices) {
         if (idx < 29) {
             current_word.push_back(idx);
         } else if (!current_word.empty()) {
             words.push_back(std::move(current_word));
+            current_word.clear(); // Garante que o vetor esteja limpo para a próxima palavra
         }
     }
     if (!current_word.empty()) words.push_back(current_word);
@@ -259,7 +360,10 @@ std::vector<std::vector<uint8_t>> ProcessedText::get_words() const {
 
 int ProcessedText::calculate_gp_sum(const std::vector<uint8_t>& word) const {
     int sum = 0;
-    for (uint8_t idx : word) sum += static_cast<int>(idx);
+    for (uint8_t idx : word) {
+        // Use the prime value assigned to the rune index
+        if (idx < 29) sum += static_cast<int>(RUNE_TABLE[idx].prime);
+    }
     return sum;
 }
 
@@ -601,6 +705,50 @@ std::array<double, 26> ProcessedText::latin_distribution() const
     return dist;
 }
 
+double ProcessedText::lempel_ziv_complexity() const {
+    std::vector<uint8_t> clean;
+    for (auto idx : m_indices) if (idx < 29) clean.push_back(idx);
+    if (clean.empty()) return 0.0;
+
+    // Using std::string instead of std::vector avoids redundant allocations
+    // and suppresses GCC 16.1 warnings related to character-vector memcmp.
+    std::set<std::string> sequences;
+    std::string current_seq;
+    
+    size_t complexity = 0;
+    for (uint8_t r : clean) {
+        current_seq += static_cast<char>(r);
+        if (sequences.insert(current_seq).second) {
+            current_seq.clear();
+            complexity++;
+        }
+    }
+    if (!current_seq.empty()) complexity++;
+
+    double n = static_cast<double>(clean.size());
+    if (n < 2) return 1.0;
+    return (static_cast<double>(complexity) * std::log2(n)) / n;
+}
+
+size_t ProcessedText::longest_repeated_substring_len() const {
+    std::vector<uint8_t> clean;
+    for (auto idx : m_indices) if (idx < 29) clean.push_back(idx);
+    if (clean.size() < 2) return 0;
+
+    size_t n = clean.size();
+    size_t max_len = 0;
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = i + 1; j < n; ++j) {
+            size_t len = 0;
+            while (j + len < n && clean[i + len] == clean[j + len]) {
+                len++;
+            }
+            if (len > max_len) max_len = len;
+        }
+    }
+    return max_len;
+}
+
 std::optional<size_t> find_index_by_rune(std::string_view rune) {
     return RuneDB::instance().get_index_rune(rune);
 }
@@ -614,8 +762,8 @@ namespace unsafe
 {
     std::string_view to_latin(std::string_view rune)
     {
-        // Em produção, se for 'unsafe', poderíamos acessar o mapa sem checar find()
-        // mas para manter a consistência com o Pimpl:
+        // In production, if 'unsafe', we could access map without checking find()
+        // but to maintain Pimpl consistency:
         return RuneDB::instance().rune_to_latin(rune).value();
     }
 

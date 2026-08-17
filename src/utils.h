@@ -60,6 +60,8 @@ namespace utils {
     void run_skip_index_analysis();
     void run_interrupt_geometry_analysis(); 
     void run_doublet_analysis(int num_threads = 1);
+    // Export structured doublet/runic repetition data per page for external analysis
+    void export_doublet_data(const std::string& output_path = "../output/doublet_data.csv");
     void run_advanced_signal_analysis(int num_threads = 1);
     void run_cross_page_pattern_analysis(size_t min_len = 4);
     void run_view_resolved_pages();
@@ -89,15 +91,28 @@ namespace utils {
     void run_delta_stream_analysis();
     void run_delta_autocorrelation_analysis();
     void run_cluster_analysis();
+    void run_gematria_sum_analysis();
 
     void export_all_page_metrics_csv(const std::string& output_path);
     void run_friedman_key_length_scan(const std::string& output_path);
+    void run_auto_vigenere_solver();
+
+    // Manual/interactive Vigenere attack using a textual key (Latin or runes).
+    void run_manual_vigenere_attack(const std::string& key,
+                                    const std::vector<size_t>& target_pages,
+                                    const std::vector<size_t>& interrupt_positions,
+                                    double fitness_threshold = 0.9,
+                                    const std::string& output_file = "../output/manual_vigenere.txt");
 
     void run_cluster_mutual_ioc_analysis(
         const std::vector<size_t>& cluster_pages,
         int suspected_len,
         const std::string& output_path
     );
+    
+    // Novas Análises
+    void run_vocabulary_overlap_analysis(const std::string& output_csv = "../output/vocabulary_overlap.csv");
+    void run_structural_segment_analysis(const std::string& output_csv = "../output/structural_segments.csv");
 
     void run_rolling_ioc_analysis(size_t window_size = 30, int num_threads = 1);
     void run_kasiski_examination(size_t min_len = 3);
@@ -106,6 +121,14 @@ namespace utils {
         const std::vector<size_t>& target_page_indices,
         double fitness_threshold,
         int num_threads = 1);
+        
+    void run_multi_metric_clustering();
+    void run_mathematical_direction_search(int num_threads = 1);
+
+    // --- Novas Análises de Transposição e Corpus ---
+    void run_merged_corpus_analysis(size_t start_page, size_t end_page);
+    void run_route_transposition_search(const std::vector<size_t>& target_pages);
+    void run_secrets_analysis();
 
     // --- Helpers of UI/Console ---
     void print_hit(const std::string& type, const core::Page& page, int offset,

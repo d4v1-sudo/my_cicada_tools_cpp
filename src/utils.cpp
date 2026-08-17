@@ -11,6 +11,8 @@
 #include <set>
 #include <thread>
 #include <mutex>
+#include <iterator>
+#include "secrets.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -24,6 +26,32 @@ const std::vector<std::string> FIND_WORDS = {
     "PILGRIM", "WITHIN", "IT IS ", "STVDY", "MASTER", "STVDENT", 
     "FOLLOW", "SHADOWS", "AETHEREAL", "BVFFERS", "CARNAL", 
     "OBSCVRA", "MOBIVS", "ANALOG", "MOVRNFVL", "CABAL"
+};
+
+struct SectionDef {
+    std::string name;
+    std::vector<size_t> page_indices; // 1-based index conforme o livro
+};
+
+const std::vector<SectionDef> G_LIBER_SECTIONS = {
+    {"Section_01_Atbash", {1}},
+    {"Section_03_04_Vigenere", {3, 4}},
+    {"Section_05_GP", {5}},
+    {"Section_06_09_AtbashShift", {6, 7, 8, 9}},
+    {"Section_10_13_GP", {10, 11, 12, 13}},
+    {"Section_14_15_Vigenere", {14, 15}},
+    {"Section_16_GP", {16}},
+    {"Section_17_19_Unresolved", {17, 18, 19}},
+    {"Section_20_24_Unresolved", {20, 21, 22, 23, 24}},
+    {"Section_25_31_Unresolved", {25, 26, 27, 28, 29, 30, 31}},
+    {"Section_32_39_Unresolved", {32, 33, 34, 35, 36, 37, 38, 39}},
+    {"Section_40_43_Unresolved", {40, 41, 42, 43}},
+    {"Section_44_49_Unresolved", {44, 45, 46, 47, 48, 49}},
+    {"Section_50_56_Unresolved", {50, 51, 52, 53, 54, 55, 56}},
+    {"Section_57_70_Unresolved", {57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70}},
+    {"Section_71_72_Unresolved", {71, 72}},
+    {"Section_73_Totient", {73}},
+    {"Section_74_Parable", {74}}
 };
 
 // Structure to unify per-page results and ensure a single CSV row per page
@@ -125,8 +153,8 @@ std::vector<double> calculate_liber_bigram_target() {
 
 double score_text_fitness(const core::ProcessedText& pt, const std::array<double, 29>& target_dist) {
     auto dist = pt.runic_distribution();
-    // Jensen-Shannon divergence: simétrica e sempre definida mesmo quando q[i]==0
-    // JSD(P||Q) = 0.5*KL(P||M) + 0.5*KL(Q||M), onde M = 0.5*(P+Q)
+    // Jensen-Shannon divergence: symmetric and always defined even when q[i]==0
+    // JSD(P||Q) = 0.5*KL(P||M) + 0.5*KL(Q||M), where M = 0.5*(P+Q)
     double jsd = 0.0;
     for (size_t i = 0; i < 29; ++i) {
         double p = dist[i];
@@ -148,11 +176,11 @@ double score_text_fitness_advanced(const core::ProcessedText& pt, const std::arr
     
     // 2. Bigram Fitness (Correlation)
     double bi_fit = calculate_correlation(pt.bigram_distribution(), target_bi);
-    bi_fit = (bi_fit + 1.0) / 2.0; // Normaliza de [-1,1] para [0,1]
+    bi_fit = (bi_fit + 1.0) / 2.0; // Normalizes from [-1,1] to [0,1]
 
     // 3. Entropy Penalty (Target: ~4.1 - 4.3 bits)
     double ent = pt.entropy();
-    double ent_penalty = std::exp(-std::pow(ent - 4.25, 2) / 0.5); // Gaussiana centrada no ideal
+    double ent_penalty = std::exp(-std::pow(ent - 4.25, 2) / 0.5); // Gaussian centered on the ideal
 
     return 0.50 * uni_fit + 0.40 * bi_fit + 0.10 * ent_penalty;
 }
@@ -196,7 +224,7 @@ std::string_view utf8_take(std::string_view str, size_t n) {
 long long gcd_vector(const std::vector<long long>& v) {
     if (v.empty()) return 0;
     long long r = v[0];
-    for (size_t i = 1; i < v.size(); ++i) r = std::gcd(r, v[i]); // <-- Alterado de core::gcd para std::gcd
+    for (size_t i = 1; i < v.size(); ++i) r = std::gcd(r, v[i]); // <-- Changed from core::gcd to std::gcd
     return r;
 }
 
@@ -232,7 +260,7 @@ void run_cluster_mutual_ioc_analysis(
             core::ProcessedText ptA(pageA.content);
             core::ProcessedText ptB(pageB.content);
 
-            // Divide ambas as páginas em colunas com base no comprimento do keystream
+            // Splits both pages into columns based on keystream length
             std::vector<std::vector<uint8_t>> colsA(suspected_key_len);
             std::vector<std::vector<uint8_t>> colsB(suspected_key_len);
 
@@ -251,7 +279,7 @@ void run_cluster_mutual_ioc_analysis(
             }
             double avg_mutual_ioc = total_mutual_ioc / suspected_key_len;
             
-            // Se o MIC médio cruzar 0.052, a correlação estrutural é violenta e idêntica
+            // If the average MIC crosses 0.052, the structural correlation is strong and identical
             bool confirmed = (avg_mutual_ioc > 0.052);
 
             csv << pageA.name << "," << pageB.name << "," 
@@ -298,8 +326,8 @@ void run_statistical_analysis(int num_threads) {
     if (!f.is_open()) return;
     f << "=== LIBER PRIMUS STATISTICAL ANALYSIS ===\n\n";
     
-    // Estruturas auxiliares para capturar o índice numérico real da página
-    // Isso evita o erro de ordenação alfabética (ex: Page 10 vir antes de Page 2)
+    // Auxiliary structures to capture real numeric index of the page
+    // This avoids alphabetic sorting errors (e.g. Page 10 before Page 2)
     struct OrderedPageInfo {
         size_t original_index;
         PageInfo info;
@@ -325,13 +353,12 @@ void run_statistical_analysis(int num_threads) {
             core::ProcessedText pt(page.content);
             if (pt.rune_count() == 0) continue;
 
-            // Mantém todas as tuas métricas estatísticas intactas
             double unif_ioc = 1.0 / 29.0;
             double fitness = score_text_fitness(pt, liber_unigram_target);
             double chi = calculate_chi_square(pt.runic_distribution(), liber_unigram_target, pt.rune_count());
             double ioc_dev = (pt.index_of_coincidence() - unif_ioc) / unif_ioc * 100.0;
 
-            // 1. Bufferizamos o relatório em memória local da thread
+            // 1. Buffer report in thread-local memory
             std::ostringstream oss;
             oss << "Page: " << page.name << " (Runes: " << pt.rune_count() << ")\n"
                 << "  - Runic IoC:   " << pt.index_of_coincidence() << " (" << (ioc_dev >= 0 ? "+" : "") << std::fixed << std::setprecision(1) << ioc_dev << "% vs random)\n"
@@ -339,20 +366,19 @@ void run_statistical_analysis(int num_threads) {
                 << "  - Chi-Square:  " << chi << "\n"
                 << "  - Fitness:     " << std::fixed << std::setprecision(4) << fitness << "\n\n";
 
-            // 2. Proteção mínima com mutex apenas para escrita nos vetores compartilhados
+            // 2. Minimal protection with mutex for shared vector writing only
             {
                 std::lock_guard<std::mutex> lock(mtx);
                 std::wstring wname(page.name.begin(), page.name.end());
                 std::wcout << L"[THREAD " << std::this_thread::get_id() << L"] Analyzing " << wname << L"..." << std::endl;
 
-                // Guardamos junto com o page.index para podermos ordenar numericamente depois
                 temp_pages.push_back({ page.index, {std::string(page.name), pt.runic_distribution(), pt.bigram_distribution(), pt.latin_distribution()} });
                 temp_outputs.push_back({ page.index, oss.str() });
             }
         }
     };
 
-    // Criação e execução das threads paralelas
+    // Parallel thread creation and execution
     std::vector<std::thread> threads;
     size_t pages_per_thread = pages.size() / num_threads;
     for (int t = 0; t < num_threads; ++t) {
@@ -362,7 +388,7 @@ void run_statistical_analysis(int num_threads) {
     }
     for (auto& t : threads) t.join();
 
-    // 3. Ordenação estritamente NUMÉRICA baseada no índice real da página do Liber Primus
+    // 3. Strictly NUMERICAL sorting based on real Liber Primus index
     std::sort(temp_pages.begin(), temp_pages.end(), [](const OrderedPageInfo& a, const OrderedPageInfo& b) {
         return a.original_index < b.original_index;
     });
@@ -371,19 +397,19 @@ void run_statistical_analysis(int num_threads) {
         return a.original_index < b.original_index;
     });
 
-    // 4. Reconstrói o vetor plano de PageInfo esperado pelas funções de salvamento do CSV
+    // 4. Reconstruct flat PageInfo vector expected by CSV save functions
     std::vector<PageInfo> all_pages;
     all_pages.reserve(temp_pages.size());
     for (const auto& item : temp_pages) {
         all_pages.push_back(item.info);
     }
 
-    // 5. Escreve no arquivo de texto na ordem sequencial perfeita
+    // 5. Write to text file in sequential order
     for (const auto& out : temp_outputs) {
         f << out.text;
     }
 
-    // 6. Salvamento intocado dos CSVs que alimentam o Python Dashboard!
+    // 6. Saving CSVs that feed the Python Dashboard
     save_correlation_csv("../output/corr_runic.csv", all_pages, true);
     save_correlation_csv("../output/corr_latin.csv", all_pages, false);
     
@@ -392,28 +418,60 @@ void run_statistical_analysis(int num_threads) {
 
 void run_friedman_key_length_scan(const std::string& output_csv_path) {
     std::ofstream csv(output_csv_path);
-    if (!csv.is_open()) return;
+    std::string txt_path = output_csv_path;
+    if (txt_path.find(".csv") != std::string::npos) 
+        txt_path.replace(txt_path.find(".csv"), 4, ".txt");
+    else 
+        txt_path += ".txt";
+    
+    std::ofstream txt(txt_path);
+    if (!csv.is_open() || !txt.is_open()) return;
     
     csv << "Page,KeyLen,AvgColIoC\n";
+    txt << "=== COMPREHENSIVE KEY LENGTH ANALYSIS (FRIEDMAN + KASISKI) ===\n\n";
+
     const auto& pages = core::G_PAGES;
 
     for (const auto& page : pages) {
         if (page.content.empty() || core::has_known_solution(page.index)) continue;
 
         core::ProcessedText pt(page.content, page.index);
-        if (pt.rune_count() < 40) continue;
+        std::vector<uint8_t> runes;
+        for (auto idx : pt.indices()) if (idx < 29) runes.push_back(idx);
 
-        // Executa a varredura cíclica completa de tamanhos de chaves
+        if (runes.size() < 40) continue;
+
+        txt << "Page: " << page.name << " (" << runes.size() << " runes)\n";
+
+        // 1. Componente Kasiski: Encontra fatores de distâncias entre padrões repetidos
+        std::map<int, int> kasiski_votes;
+        std::map<std::string, std::vector<size_t>> patterns;
+        for (size_t i = 0; i <= runes.size() - 3; ++i) {
+            std::string pat;
+            for(int k=0; k<3; ++k) pat += static_cast<char>(runes[i+k]);
+            patterns[pat].push_back(i);
+        }
+        for (auto const& [pat, positions] : patterns) {
+            if (positions.size() > 1) {
+                for (size_t j = 1; j < positions.size(); ++j) {
+                    int d = static_cast<int>(positions[j] - positions[j-1]);
+                    // Vote for all distance factors found (up to 30)
+                    for (int f = 2; f <= 30; ++f) if (d % f == 0) kasiski_votes[f]++;
+                }
+            }
+        }
+
+        // 2. Componente Friedman: Varredura de IoC Colunar
+        struct FResult { int kl; double ioc; };
+        std::vector<FResult> friedman_results;
+
         for (int kl = 2; kl <= 30; ++kl) {
             std::vector<std::array<double, 29>> col_dists(kl, std::array<double, 29>{0.0});
             std::vector<size_t> col_counts(kl, 0);
             
-            size_t rune_pos = 0;
-            for (auto idx : pt.indices()) {
-                if (idx >= 29) continue;
-                col_dists[rune_pos % kl][idx]++;
-                col_counts[rune_pos % kl]++;
-                rune_pos++;
+            for (size_t i = 0; i < runes.size(); ++i) {
+                col_dists[i % kl][runes[i]]++;
+                col_counts[i % kl]++;
             }
 
             double avg_col_ioc = 0.0;
@@ -428,10 +486,34 @@ void run_friedman_key_length_scan(const std::string& output_csv_path) {
             }
             avg_col_ioc /= kl;
 
+            friedman_results.push_back({kl, avg_col_ioc});
             csv << page.name << "," << kl << "," << std::fixed << std::setprecision(5) << avg_col_ioc << "\n";
         }
+
+        // Sort Friedman results to find peaks
+        std::sort(friedman_results.begin(), friedman_results.end(), [](auto& a, auto& b){ return a.ioc > b.ioc; });
+        
+        txt << "  Friedman Peaks: ";
+        for (size_t i = 0; i < std::min((size_t)5, friedman_results.size()); ++i)
+            txt << friedman_results[i].kl << "(" << std::fixed << std::setprecision(4) << friedman_results[i].ioc << ") ";
+        
+        if (!kasiski_votes.empty()) {
+            std::vector<std::pair<int, int>> sorted_k(kasiski_votes.begin(), kasiski_votes.end());
+            std::sort(sorted_k.begin(), sorted_k.end(), [](auto& a, auto& b){ return a.second > b.second; });
+            txt << "\n  Kasiski Votes:  ";
+            for (size_t i = 0; i < std::min((size_t)5, sorted_k.size()); ++i)
+                txt << sorted_k[i].first << "(" << sorted_k[i].second << "v) ";
+        }
+
+        // Highlight if both methods agree
+        if (friedman_results[0].ioc > 0.05 && kasiski_votes[friedman_results[0].kl] > 0) {
+            txt << "\n  [!!!] HIGH CONFIDENCE candidate: Key Length " << friedman_results[0].kl;
+        }
+        txt << "\n------------------------------------------\n\n";
     }
+    txt.close();
     csv.close();
+    std::wcout << L"Scan complete. Results saved to " << std::wstring(output_csv_path.begin(), output_csv_path.end()) << L" (.csv and .txt)\n";
 }
 
 void run_heuristic_cipher_analysis(int num_threads) {
@@ -459,17 +541,17 @@ void run_heuristic_cipher_analysis(int num_threads) {
             struct Result { std::string type; int param; double fitness; };
             std::vector<Result> mono_results;
 
-            // 0. Testar Identidade
+            // 0. Test Identity
             mono_results.push_back({"None", 0, score_text_fitness(pt_original, target_dist)});
 
-            // 1. Testar Caesar Shifts
+            // 1. Test Caesar Shifts
             for (int s = 0; s < 29; ++s) {
                 core::ProcessedText pt = pt_original;
                 core::ShiftTransformer(s).transform(pt);
                 mono_results.push_back({"Shift", s, score_text_fitness(pt, target_dist)});
             }
 
-            // 2. Testar Atbash Variations
+            // 2. Test Atbash Variations
             for (int s = 0; s < 29; ++s) {
                 core::ProcessedText pt = pt_original;
                 core::AtbashTransformer(s).transform(pt);
@@ -480,7 +562,7 @@ void run_heuristic_cipher_analysis(int num_threads) {
                 return a.fitness > b.fitness;
             });
 
-            // 3. Vigenere brute-force por comprimento estimado (AGORA TOTALMENTE EM PARALELO!)
+            // 3. Vigenere brute-force by estimated length (PARALLEL)
             double ioc = pt_original.index_of_coincidence();
             auto auto_corr = pt_original.autocorrelation();
             int auto_corr_lag = 0;
@@ -527,7 +609,7 @@ void run_heuristic_cipher_analysis(int num_threads) {
                 avg_col_ioc /= kl;
 
                 if (avg_col_ioc > 0.055) {
-                    vigenere_oss << "    [!] KeyLen=" << kl << " ColIoC=" << std::fixed << std::setprecision(4) << avg_col_ioc << " (Friedman hit — chave provável)\n";
+                    vigenere_oss << "    [!] KeyLen=" << kl << " ColIoC=" << std::fixed << std::setprecision(4) << avg_col_ioc << " (Friedman hit — likely key)\n";
                     if (avg_col_ioc > max_avg_col_ioc) {
                         max_avg_col_ioc = avg_col_ioc;
                         best_vigenere_kl = kl;
@@ -535,7 +617,7 @@ void run_heuristic_cipher_analysis(int num_threads) {
                 }
             }
 
-            // Construir o log de texto localmente em memória
+            // Build text log in memory
             std::ostringstream txt_oss;
             txt_oss << "Page: " << page.name << " (Length: " << pt_original.rune_count() << ")\n"
                     << "  Top Estimations:\n";
@@ -544,16 +626,16 @@ void run_heuristic_cipher_analysis(int num_threads) {
                 txt_oss << "    " << i+1 << ". " << std::setw(8) << std::left << mono_results[i].type << " (param: " << std::setw(2) << mono_results[i].param 
                         << ") Fitness: " << std::fixed << std::setprecision(5) << mono_results[i].fitness << "\n";
             }
-            txt_oss << vigenere_oss.str() // Insere os hits de Vigenère se houverem
+            txt_oss << vigenere_oss.str() // Insert Vigenère hits if any
                     << "  Baseline IoC: " << ioc << (ioc > 0.06 ? " (High: Likely Substitution)" : " (Low: Likely Polyalphabetic)") << "\n"
                     << "------------------------------------------\n";
 
-            // Determinar os dados finais da linha única do CSV
+            // Determine final data for single CSV row
             std::string csv_cipher = mono_results[0].type;
             int csv_param = mono_results[0].param;
             double csv_fitness = mono_results[0].fitness;
             
-            // Tratamento da coluna de melhor tamanho de chave Vigenère
+            // Treatment for best Vigenère key length column
             int final_vigenere_col = 0;
             if (best_vigenere_kl > 0) {
                 final_vigenere_col = best_vigenere_kl;
@@ -561,14 +643,14 @@ void run_heuristic_cipher_analysis(int num_threads) {
                 final_vigenere_col = auto_corr_lag;
             }
 
-            // Se o teste de colunas do Vigenère deu um resultado muito forte, ele ganha como a cifra provável
+            // If Vigenère column test is strong, it wins as the likely cipher
             if (max_avg_col_ioc > 0.055) {
                 csv_cipher = "Vigenere";
                 csv_param = best_vigenere_kl;
-                csv_fitness = max_avg_col_ioc; // Consolida o IoC de coluna como a métrica de "fitness"
+                csv_fitness = max_avg_col_ioc; // Consolidate column IoC as fitness
             }
 
-            // Lock ultrarrápido apenas para salvar os resultados estruturados e atualizar o console
+            // Fast lock for result saving
             {
                 std::lock_guard<std::mutex> lock(mtx);
                 final_results.push_back({
@@ -586,7 +668,7 @@ void run_heuristic_cipher_analysis(int num_threads) {
         }
     };
 
-    // Despachar as threads
+    // Dispatch threads
     std::vector<std::thread> threads;
     size_t pages_per_thread = pages.size() / num_threads;
     for (int t = 0; t < num_threads; ++t) {
@@ -596,12 +678,12 @@ void run_heuristic_cipher_analysis(int num_threads) {
     }
     for (auto& t : threads) t.join();
 
-    // Ordenar deterministicamente por nome de página alfabeticamente
+    // Deterministic sorting
     std::sort(final_results.begin(), final_results.end(), [](const CipherAnalysisResult& a, const CipherAnalysisResult& b) {
         return a.page_name < b.page_name;
     });
 
-    // Gravar os outputs de forma limpa, linear e sem duplicatas
+    // Write outputs cleanly
     for (const auto& res : final_results) {
         f << res.txt_log;
 
@@ -640,16 +722,20 @@ void run_oeis_search(const std::vector<core::OEISSequence>& sequences, std::ofst
                    << std::wstring(resumeSeqId.begin(), resumeSeqId.end()) << L"\n";
     }
 
-    for (size_t p = resumePage; p <= 15 && p < core::G_PAGES.size(); ++p)
+    // Iterate through pages starting from checkpoint
+    for (size_t p = resumePage; p < core::G_PAGES.size(); ++p)
     {
-        std::string_view page_name = core::G_PAGES[p].name;
+        const auto& page = core::G_PAGES[p];
+        if (core::has_known_solution(page.index)) continue;
+
+        std::string_view page_name = page.name;
         std::wcout << L"\nScanning "
                    << std::wstring(page_name.begin(), page_name.end()) << L"...\n";
 
-        std::string_view sliced = utf8_take(core::G_PAGES[p].content, 200);
-        core::ProcessedText base_pt(sliced, p + 1);
+        // Analyze whole page
+        core::ProcessedText base_pt(page.content, page.index);
         
-        // Coleta posições das runas ᚠ (índice 0) para power-set de interrupções
+        // Collect ᚠ rune positions for power-set interruptions
         std::vector<size_t> f_positions;
         const auto& base_idx = base_pt.indices();
         size_t rune_counter = 0;
@@ -673,15 +759,10 @@ void run_oeis_search(const std::vector<core::OEISSequence>& sequences, std::ofst
         }
         
         auto worker = [&](size_t start_s, size_t end_s) {
+            auto target_dist = calculate_liber_unigram_target();
             for (size_t s = start_s; s < end_s; ++s) {
                 const auto& seq = sequences[s];
                 
-            // Checkpoint
-            if (num_threads == 1) {
-                std::ofstream ck("../output/stopped-at.txt", std::ios::trunc);
-                ck << "PageIndex: " << p << "\nSequence: " << seq.id << "\n";
-            }
-
             unsigned long long combos = 1ULL << f_positions.size();
             for (size_t mask = 0; mask < combos; ++mask) {
                 std::vector<size_t> interrupts;
@@ -691,6 +772,9 @@ void run_oeis_search(const std::vector<core::OEISSequence>& sequences, std::ofst
                 core::ProcessedText pt = base_pt;
                 core::SequenceTransformer t(seq.data, interrupts);
                 t.transform(pt);
+
+                // Fast statistical filter before string searching
+                if (score_text_fitness(pt, target_dist) < 0.75) continue;
 
                 std::string latin = pt.to_latin();
                 for (const auto& word : FIND_WORDS) {
@@ -764,7 +848,7 @@ void run_rolling_ioc_analysis(size_t window_size, int num_threads) {
         core::ProcessedText pt(page.content, page.index);
         auto& indices = pt.indices();
         
-        // Filtra apenas runas para o cálculo do IoC
+        // Filter only runes for IoC calculation
         std::vector<uint8_t> clean_runes;
         for(auto idx : indices) if(idx < 29) clean_runes.push_back(idx);
 
@@ -775,7 +859,7 @@ void run_rolling_ioc_analysis(size_t window_size, int num_threads) {
         double global_ioc = pt.index_of_coincidence();
         ss << "  Global Page IoC: " << std::fixed << std::setprecision(5) << global_ioc << "\n";
         
-        // Referência: 0.034 = Aleatório | 0.067 = Texto Plano Liber Primus
+        // Reference: 0.034 = Random | 0.067 = Plaintext
         if (global_ioc < 0.030) ss << "  [NOTE] High Diffusion detected (IoC below random). Likely complex polyalphabetic.\n";
 
         if (clean_runes.size() < window_size) {
@@ -795,8 +879,8 @@ void run_rolling_ioc_analysis(size_t window_size, int num_threads) {
             peaks.push_back({i, ioc});
         }
 
-        // Criamos uma cópia para ordenar os resultados apenas para o log de texto (.txt)
-        // Isso permite ver os pontos de maior interesse primeiro sem bagunçar o CSV.
+        // Copy to sort results for text log (.txt) only
+        // This allows seeing high interest points first without cluttering the CSV
         std::vector<Peak> sorted_peaks = peaks;
         std::sort(sorted_peaks.begin(), sorted_peaks.end(), [](const Peak& a, const Peak& b) {
             return std::abs(a.ioc - 0.0667) < std::abs(b.ioc - 0.0667);
@@ -820,7 +904,7 @@ void run_rolling_ioc_analysis(size_t window_size, int num_threads) {
         {
             std::lock_guard<std::mutex> lock(mtx);
             f << ss.str();
-            // Salva TODOS os dados de IoC para o CSV
+            // Save ALL IoC data to CSV
             for(const auto& peak : peaks) {
                 csv << page.name << "," << peak.pos << "," << peak.ioc << "\n";
             }
@@ -863,13 +947,13 @@ void run_peak_bruteforce_analysis() {
 
         size_t pos = std::stoul(pos_str);
 
-        // Encontra a página nos dados globais
+        // Find page in global data
         for (const auto& pg : core::G_PAGES) {
             if (pg.name == page_name) {
                 core::ProcessedText pt_full(pg.content);
                 auto& full_indices = pt_full.indices();
                 
-                // Extrai apenas as runas da janela
+                // Extract only window runes
                 std::vector<uint8_t> window_indices;
                 std::vector<size_t> original_map;
                 size_t r_count = 0;
@@ -883,7 +967,7 @@ void run_peak_bruteforce_analysis() {
                     }
                 }
 
-                // Se o IoC global da página for muito baixo, avisa que o brute-force simples pode falhar
+                // If global Page IoC is too low, warn that simple brute-force may fail
                 bool resolved = core::has_known_solution(pg.index);
                 if (!resolved && pt_full.index_of_coincidence() < 0.04) {
                     static std::set<std::string> warned_pages;
@@ -895,7 +979,7 @@ void run_peak_bruteforce_analysis() {
 
                 if(window_indices.empty()) continue;
 
-                // Brute force local na janela
+                // Local brute force on window
                 for(int s=0; s<29; ++s) {
                     for(bool atbash : {false, true}) {
                         std::vector<uint8_t> test = window_indices;
@@ -949,23 +1033,24 @@ void run_key_sequence_analysis() {
         const auto& p_idx = pt_plain.indices();
         std::vector<int> stream;
 
-        if (solved) {
-            for (size_t j = 0; j < c_idx.size(); ++j) {
-                if (c_idx[j] < 29 && p_idx[j] < 29)
-                    stream.push_back((static_cast<int>(c_idx[j]) - static_cast<int>(p_idx[j]) + 29) % 29);
-            }
-            f << "Page: " << pg.name << " | Values: ";
+        for (size_t j = 0; j < c_idx.size(); ++j) {
+            if (c_idx[j] < 29 && p_idx[j] < 29)
+                stream.push_back((static_cast<int>(c_idx[j]) - static_cast<int>(p_idx[j]) + 29) % 29);
+        }
+
+        f << "Page: " << pg.name << (solved ? "" : " [UNRESOLVED]") << " | Values: ";
+        if (stream.empty()) {
+            f << "[NO RUNES]\n";
+        } else {
             for (size_t j = 0; j < std::min(stream.size(), (size_t)20); ++j) f << stream[j] << " ";
             f << (stream.size() > 20 ? "...\n" : "\n");
+        }
 
-            // Exporta stream completa no CSV
-            for (size_t j = 0; j < stream.size(); ++j) {
-                csv << pg.name << "," << j << "," << stream[j] << "\n";
-            }
-        } else {
-            // Para páginas não resolvidas, ainda registrar a presença e marca-las como UNRESOLVED
-            f << "Page: " << pg.name << " | Values: [UNRESOLVED]\n";
-            csv << pg.name << ",-1,UNRESOLVED\n";
+        if (!solved) csv << pg.name << ",-1,UNRESOLVED\n";
+
+        // Export full stream to CSV for dashboard
+        for (size_t j = 0; j < stream.size(); ++j) {
+            csv << pg.name << "," << j << "," << stream[j] << "\n";
         }
     }
     std::wcout << L"Key stream analysis saved to ../output/key_stream_analysis.txt\n";
@@ -997,7 +1082,7 @@ void run_interrupt_geometry_analysis() {
     };
     std::vector<PageEntry> entries;
 
-    // 1. Coleta de dados e exibição da sequência de contadores
+    // 1. Data collection and sequence display
     f << "--- SEQUENCE OF INTERRUPT COUNTS ---\n";
     for (size_t i = 0; i < core::G_PAGES.size(); ++i) {
         const auto& pg = core::G_PAGES[i];
@@ -1016,7 +1101,7 @@ void run_interrupt_geometry_analysis() {
     f << "\n";
     csv.close();
 
-    // 2. Identificação de Clusters (Páginas com assinaturas idênticas)
+    // 2. Cluster Identification (Pages with identical signatures)
     f << "--- STRUCTURAL CLUSTERS (Identical Signatures) ---\n";
     std::map<std::vector<size_t>, std::vector<int>> clusters;
     for (const auto& entry : entries) {
@@ -1048,7 +1133,7 @@ void run_interrupt_geometry_analysis() {
         }
     }
 
-    // 3. Investigação de Anomalias (Page 16 e vizinhos)
+    // 3. Anomaly Investigation (Page 16 and neighbors)
     f << "--- ANOMALY INVESTIGATION ---\n";
     for (const auto& entry : entries) {
         if (entry.page_id == 16) {
@@ -1062,7 +1147,7 @@ void run_interrupt_geometry_analysis() {
         }
     }
 
-    // 4. Exportação da sequência pura de contadores para análise externa
+    // 4. Raw count sequence export
     f << "\n--- RAW COUNT SEQUENCE (Possible Meta-Message) ---\n";
     for (size_t i = 0; i < entries.size(); ++i) {
         f << entries[i].indices.size() << (i == entries.size() - 1 ? "" : ", ");
@@ -1074,7 +1159,7 @@ void run_interrupt_geometry_analysis() {
     std::wcout << L"Analysis of " << entries.size() << L" pages concluded.\n";
     std::wcout << GREEN_COLOR << L"Clusters and raw sequences saved to ../output/interrupt_clusters.txt" << RESET_COLOR << L"\n";
     
-    // Print especial para a sequência no console
+    // Print sequence to console
     std::wcout << L"\nRaw Interrupt Count Sequence:\n";
     for (const auto& e : entries) std::wcout << e.indices.size() << L" ";
     std::wcout << L"\n";
@@ -1103,8 +1188,8 @@ void run_doublet_analysis(int num_threads) {
             else { if(current_run > 1) runs.push_back(current_run); current_run = 1; }
         }
 
-            double ratio = (pt.rune_count() > 0) ? static_cast<double>(doublets) / static_cast<double>(pt.rune_count()) : 0.0;
-        if (ratio > 0.02) { // Picos de repetição > 2% sugerem algo não aleatório
+        double ratio = (pt.rune_count() > 0) ? static_cast<double>(doublets) / static_cast<double>(pt.rune_count()) : 0.0;
+        if (ratio > 0.02) { // Peaks > 2% suggest non-random structure
             std::stringstream ss;
             ss << "Page " << page.name << " | Doublets: " << doublets << " (" << ratio * 100 << "%)\n";
             for (auto const& [rune, count] : doublet_map) {
@@ -1136,6 +1221,69 @@ void run_doublet_analysis(int num_threads) {
     std::wcout << L"Doublet analysis saved to ../output/doublet_analysis.txt\n";
 }
 
+void export_doublet_data(const std::string& output_path) {
+    // Ensure directory exists
+    try {
+        std::filesystem::path outp(output_path);
+        if (outp.has_parent_path()) std::filesystem::create_directories(outp.parent_path());
+    } catch(...) {}
+    std::ofstream csv(output_path);
+    if (!csv.is_open()) return;
+    csv << "Page,Runes,DoubletCount,DoubletRatio,DoubletRuneCounts,RunLengths,BigramCounts\n";
+
+    const auto& pages = core::G_PAGES;
+    for (const auto& page : pages) {
+        if (page.content.empty()) continue;
+        core::ProcessedText pt(page.content);
+        auto idx = pt.indices();
+
+        int doublets = 0;
+        std::map<uint8_t, int> doublet_map;
+        std::vector<int> runs;
+        int current_run = 1;
+
+        for (size_t i = 1; i < idx.size(); ++i) {
+            if (idx[i] < 29 && idx[i] == idx[i-1]) { doublets++; doublet_map[idx[i]]++; current_run++; }
+            else { if (current_run > 1) runs.push_back(current_run); current_run = 1; }
+        }
+        if (current_run > 1) runs.push_back(current_run);
+
+        double ratio = (pt.rune_count() > 0) ? static_cast<double>(doublets) / static_cast<double>(pt.rune_count()) : 0.0;
+
+        // Bigram counts (only for runic indices)
+        std::map<std::pair<int,int>, int> bigram_counts;
+        std::vector<uint8_t> clean;
+        for (auto v : idx) if (v < 29) clean.push_back(v);
+        for (size_t i = 0; i + 1 < clean.size(); ++i) bigram_counts[{clean[i], clean[i+1]}]++;
+
+        // Serialize maps as JSON-like string (no external dependency)
+        std::ostringstream drs;
+        drs << "{";
+        bool first = true;
+        for (auto const& [r, c] : doublet_map) { if (!first) drs << ";"; drs << (int)r << ":" << c; first = false; }
+        drs << "}";
+
+        std::ostringstream runs_s;
+        for (size_t i = 0; i < runs.size(); ++i) { if (i) runs_s << ";"; runs_s << runs[i]; }
+
+        std::ostringstream big_s;
+        big_s << "{"; first = true;
+        for (auto const& kv : bigram_counts) { if (!first) big_s << ";"; big_s << kv.first.first << "-" << kv.first.second << ":" << kv.second; first = false; }
+        big_s << "}";
+
+        // Escape commas in page name if any
+    std::string pname(page.name);
+        for (auto &ch : pname) if (ch == ',') ch = ';';
+
+        csv << pname << "," << pt.rune_count() << "," << doublets << "," << std::fixed << std::setprecision(6) << ratio << ","
+            << '"' << drs.str() << '"' << ","
+            << '"' << runs_s.str() << '"' << ","
+            << '"' << big_s.str() << '"' << "\n";
+    }
+    csv.close();
+    std::wcout << L"Doublet CSV exported to " << std::wstring(output_path.begin(), output_path.end()) << L"\n";
+}
+
 void run_advanced_signal_analysis(int num_threads) {
     std::wcout << L"\n=== ADVANCED SIGNAL & DELTA PERIODICITY ===\n";
     std::ofstream f("../output/signal_periodicity.txt");
@@ -1153,7 +1301,7 @@ void run_advanced_signal_analysis(int num_threads) {
             deltas.push_back(static_cast<long long>(interrupts[j]) - interrupts[j-1]);
         }
 
-        // Busca por periodicidade nos deltas (Testando hipótese de PRNG cíclico)
+        // Search for delta periodicity (Cyclic PRNG hypothesis)
         std::stringstream ss;
         for (size_t period = 2; period <= deltas.size() / 2; ++period) {
             int matches = 0;
@@ -1162,7 +1310,7 @@ void run_advanced_signal_analysis(int num_threads) {
             }
             double score = static_cast<double>(matches) / static_cast<double>(deltas.size() - period);
             
-            if (score > 0.4) { // Alta repetição de padrão de salto
+            if (score > 0.4) { // High repeat jump pattern
                 ss << "Page " << pg.name << " | [!] STRONG DELTA PERIOD: " << period << " (Conf: " << score * 100 << "%)\n";
                 ss << "      Pattern: ";
                 for(size_t k=0; k<period; ++k) ss << deltas[k] << " ";
@@ -1205,18 +1353,19 @@ void run_advanced_signal_analysis(int num_threads) {
 void run_cross_page_pattern_analysis(size_t min_len) {
     std::wcout << L"\n=== CROSS-PAGE PATTERN CLUSTERING (Min Len: " << min_len << L") ===\n";
     std::ofstream f("../output/cross_page_patterns.txt");
-    std::map<std::vector<uint8_t>, std::vector<std::string>> pattern_map;
+    std::map<std::string, std::vector<std::string>> pattern_map;
 
     for (const auto& page : core::G_PAGES) {
         if (page.content.empty()) continue;
         core::ProcessedText pt(page.content);
-        auto& clean = pt.indices(); // Simplificando para usar indices brutos
+        auto& clean = pt.indices(); // Using raw indices
         std::vector<uint8_t> runes;
         for(auto x : clean) if(x < 29) runes.push_back(x);
 
         if(runes.size() < min_len) continue;
         for (size_t i = 0; i <= runes.size() - min_len; ++i) {
-            std::vector<uint8_t> seq(runes.begin() + i, runes.begin() + i + min_len);
+            std::string seq;
+            for(size_t k = 0; k < min_len; ++k) seq += static_cast<char>(runes[i+k]);
             pattern_map[seq].push_back(std::string(page.name));
         }
     }
@@ -1225,7 +1374,7 @@ void run_cross_page_pattern_analysis(size_t min_len) {
         std::set<std::string> unique_pages(pages.begin(), pages.end());
         if (unique_pages.size() > 1) {
             f << "Pattern [ ";
-            for(auto x : seq) f << (int)x << " ";
+            for(auto x : seq) f << static_cast<int>(static_cast<uint8_t>(x)) << " ";
             f << "] found across " << unique_pages.size() << " pages: ";
             for(const auto& p : unique_pages) f << p << " ";
             f << "\n";
@@ -1290,9 +1439,10 @@ void run_kasiski_examination(size_t min_len) {
 
         if (runes.size() < 50) continue;
 
-        std::map<std::vector<uint8_t>, std::vector<size_t>> sequences;
+        std::map<std::string, std::vector<size_t>> sequences;
         for (size_t i = 0; i <= runes.size() - min_len; ++i) {
-            std::vector<uint8_t> seq(runes.begin() + i, runes.begin() + i + min_len);
+            std::string seq;
+            for(size_t k = 0; k < min_len; ++k) seq += static_cast<char>(runes[i+k]);
             sequences[seq].push_back(i);
         }
 
@@ -1304,7 +1454,7 @@ void run_kasiski_examination(size_t min_len) {
                     found_on_page = true;
                 }
                 f << "  Pattern [ ";
-                for (auto x : seq) f << (int)x << " ";
+                for (auto x : seq) f << static_cast<int>(static_cast<uint8_t>(x)) << " ";
                 f << "] Positions: ";
                 std::vector<long long> deltas;
                 for (size_t i = 0; i < pos.size(); ++i) {
@@ -1329,7 +1479,7 @@ void export_page_features(const std::string& filename) {
     auto target_uni = calculate_liber_unigram_target();
     auto target_bi = calculate_liber_bigram_target();
     
-    f << "Page,Length,IoC,Entropy,ChiSquare,Fitness,BigramIoC,NumInterrupts,GpsSumMean,TopDelta,LRS\n";
+    f << "Page,Length,IoC,Entropy,ChiSquare,Fitness,BigramIoC,NumInterrupts,GpsSumMean,TopDelta,LRS,LZ\n";
     
     for (const auto& page : core::G_PAGES) {
         if (page.content.empty()) continue;
@@ -1345,9 +1495,8 @@ void export_page_features(const std::string& filename) {
             top_delta = std::max(top_delta, static_cast<int>(interrupts[i] - interrupts[i-1]));
         }
         
-        // Longest Repeated Substring (LRS) as a basic indicator of periodicity
-        auto auto_corr = pt.autocorrelation();
-        double max_auto = (auto_corr.size() > 2) ? *std::max_element(auto_corr.begin()+2, auto_corr.end()) : 0;
+        // Métrica LRS real em vez de apenas o pico da autocorrelação
+        size_t lrs_len = pt.longest_repeated_substring_len();
 
         auto words = pt.get_words();
     double total_gps = 0.0;
@@ -1364,7 +1513,8 @@ void export_page_features(const std::string& filename) {
           << interrupts.size() << ","
           << avg_gps << ","
           << top_delta << ","
-          << max_auto << "\n";
+          << lrs_len << ","
+          << pt.lempel_ziv_complexity() << "\n";
     }
     std::wcout << L"Features exported to " << std::wstring(filename.begin(), filename.end()) << L"\n";
 }
@@ -1401,7 +1551,7 @@ void run_delta_stream_analysis() {
 
         double delta_ioc = calculate_ioc_from_indices(deltas);
         
-        // Cálculo de Entropia dos Deltas
+        // Delta Entropy Calculation
         double entropy = 0.0;
         for (auto count : freq) {
             if (count > 0) {
@@ -1445,14 +1595,14 @@ void run_delta_autocorrelation_analysis() {
         if (runes.size() < 2) continue;
 
         std::vector<uint8_t> deltas;
-        for (size_t i = 1; i < runes.size(); ++i) {
+        for (size_t i = 1; i < (size_t)runes.size(); ++i) {
             deltas.push_back(static_cast<uint8_t>(
                 (static_cast<int>(runes[i]) - static_cast<int>(runes[i - 1]) + 29) % 29
             ));
         }
 
-        // Analisar lags de 1 até 200 (ou até metade da página)
-        int max_lag = std::min<int>(200, deltas.size() / 2);
+        // Analyze lags from 1 up to 200 (or half page length)
+        int max_lag = std::min<int>(200, static_cast<int>(deltas.size() / 2));
         for (int lag = 1; lag <= max_lag; ++lag) {
             int matches = 0;
             int total = 0;
@@ -1473,104 +1623,1171 @@ void run_delta_autocorrelation_analysis() {
 }
 
 void run_cluster_analysis() {
-    std::wcout << L"\n=== GLOBAL CLUSTER ANALYSIS (MERGED BLOCKS) ===\n";
+    std::wcout << L"\n=== SECTIONAL STRUCTURE ANALYSIS (LIBER PRIMUS) ===\n";
     std::ofstream txt("../output/cluster_analysis.txt");
+    if (!txt.is_open()) return;
 
-    // Lembrete: Índices no C++ são (Número_da_Página - 1)
-    struct ClusterDef {
-        std::string name;
-        std::vector<size_t> page_indices;
-    };
+    for (const auto& section : G_LIBER_SECTIONS) {
+        std::wcout << L"Analyzing " << std::wstring(section.name.begin(), section.name.end()) << L"...\n";
 
-    std::vector<ClusterDef> clusters = {
-        {"Cluster_A_Pages_17_to_19", {16, 17, 18}},
-        {"Cluster_B_Pages_20_to_24", {19, 20, 21, 22, 23}},
-        {"Cluster_C_Pages_25_to_31", {24, 25, 26, 27, 28, 29, 30}},
-        {"Cluster_D_Pages_33_to_39", {32, 33, 34, 35, 36, 37, 38}}
-    };
-
-    for (const auto& cluster : clusters) {
         std::vector<uint8_t> merged_runes;
+        std::vector<core::ProcessedText> processed_pages;
 
-        // 1. Concatenar todas as runas das páginas do cluster
-        for (size_t idx : cluster.page_indices) {
-            if (idx < core::G_PAGES.size() && !core::G_PAGES[idx].content.empty()) {
-                core::ProcessedText pt(core::G_PAGES[idx].content);
-                for (auto r : pt.indices()) {
-                    if (r < 29) merged_runes.push_back(r);
+        txt << "==========================================================================\n";
+        txt << "SECTION ANALYSIS: " << section.name << "\n";
+        txt << "Pages: ";
+
+        bool any_solved = false;
+        std::string methods = "";
+        // Using std::string for set keys to avoid compiler warnings and improve speed
+        std::vector<std::set<std::string>> vocabularies;
+
+        for (size_t p_num : section.page_indices) {
+            const core::Page* pg = nullptr;
+            for (const auto& p : core::G_PAGES) if (p.index == p_num) { pg = &p; break; }
+            if (!pg || pg->content.empty()) continue;
+
+            txt << "Page " << p_num << " ";
+            core::ProcessedText pt(pg->content, pg->index);
+            processed_pages.push_back(pt);
+
+            // Collect words for Jaccard similarity
+            auto words_vec = pt.get_words();
+            std::set<std::string> word_set;
+            for(const auto& w : words_vec) 
+                word_set.insert(std::string(w.begin(), w.end()));
+            vocabularies.push_back(std::move(word_set));
+
+            // FILTER INTERRUPTERS: Only merge runes that are not known interrupters
+            // This makes the Friedman Scan much more accurate.
+            auto interrupters = core::get_possible_interrupters(p_num);
+            std::set<size_t> int_set(interrupters.begin(), interrupters.end());
+            size_t r_count = 0;
+            for (auto r : pt.indices()) {
+                if (r < 29) {
+                    if (int_set.find(r_count) == int_set.end()) merged_runes.push_back(r);
+                    r_count++;
+                }
+            }
+
+            if (core::has_known_solution(p_num)) {
+                any_solved = true;
+                std::string m = core::get_solution_method(p_num);
+                if (methods.find(m) == std::string::npos) {
+                    if (!methods.empty()) methods += ", ";
+                    methods += m;
                 }
             }
         }
+        txt << "\nStatus: " << (any_solved ? "RESOLVED/PARTIAL" : "UNRESOLVED") << "\n";
+        if (!methods.empty()) txt << "Methods found: " << methods << "\n";
+        
+        if (merged_runes.empty()) { txt << "No content found for this section.\n\n"; continue; }
 
-        if (merged_runes.empty()) continue;
+        // 1. IoC Rúnico (Bruto)
+        double r_ioc = calculate_ioc_from_indices(merged_runes);
 
-        double ioc = calculate_ioc_from_indices(merged_runes);
+        // 2. IoC Latino e Entropia (Aplicando solução se disponível)
+        double total_l_ioc = 0, total_ent = 0;
+        for (size_t i = 0; i < processed_pages.size(); ++i) {
+            core::ProcessedText pt_dec = processed_pages[i];
+            size_t p_num = section.page_indices[i];
+            const core::Page* pg_ptr = nullptr;
+            for (const auto& p : core::G_PAGES) if (p.index == p_num) { pg_ptr = &p; break; }
+            
+            if (pg_ptr && core::has_known_solution(p_num)) core::apply_known_solution(*pg_ptr, pt_dec);
+            total_l_ioc += pt_dec.latin_index_of_coincidence();
+            total_ent += pt_dec.entropy();
+        }
+        double avg_l_ioc = total_l_ioc / static_cast<double>(processed_pages.size());
+        double avg_ent = total_ent / static_cast<double>(processed_pages.size());
 
-        txt << "--- " << cluster.name << " ---\n"
-            << "Total Runes: " << merged_runes.size() << "\n"
-            << "Global IoC:  " << std::fixed << std::setprecision(5) << ioc << "\n\n";
+        txt << "\n[STATISTICAL SUMMARY]\n";
+        txt << "  Total Runes: " << merged_runes.size() << "\n";
+        txt << "  Runic IoC:   " << std::fixed << std::setprecision(5) << r_ioc << (r_ioc > 0.06 ? " (HIGH: Likely Mono)" : " (LOW: Likely Poly)") << "\n";
+        txt << "  Latin IoC:   " << std::fixed << std::setprecision(5) << avg_l_ioc << (avg_l_ioc > 0.06 ? " (PLAINTEXT)" : " (CIPHERED)") << "\n";
+        txt << "  Entropy:     " << std::fixed << std::setprecision(4) << avg_ent << " bits per rune\n";
 
-        // 2. Kasiski Global no Bloco (tamanho mínimo 4)
-        std::map<std::vector<uint8_t>, std::vector<size_t>> sequences;
+        // 3. Internal Comparison Matrix (Enhanced)
+        if (processed_pages.size() > 1) {
+            txt << "\n[INTERNAL RELATIONSHIP MATRIX]\n";
+            txt << "Legend: [U] Unigram Corr | [M] Markov Corr | [J] Vocabulary Jaccard Similarity\n\n      ";
+            for(size_t p_num : section.page_indices) txt << "P" << std::setw(2) << p_num << "            ";
+            txt << "\n";
+            for (size_t i = 0; i < processed_pages.size(); ++i) {
+                txt << "P" << std::setw(2) << section.page_indices[i] << " |";
+                for (size_t j = 0; j < processed_pages.size(); ++j) {
+                    double c_uni = calculate_correlation(processed_pages[i].runic_distribution(), processed_pages[j].runic_distribution());
+                    double c_mar = calculate_correlation(processed_pages[i].transition_matrix(), processed_pages[j].transition_matrix());
+                    
+                    double jaccard = 0.0;
+                    if (!vocabularies[i].empty() && !vocabularies[j].empty()) {
+                        std::vector<std::string> intersect;
+                        std::set_intersection(vocabularies[i].begin(), vocabularies[i].end(),
+                                              vocabularies[j].begin(), vocabularies[j].end(),
+                                              std::back_inserter(intersect));
+                        jaccard = static_cast<double>(intersect.size()) / static_cast<double>(vocabularies[i].size() + vocabularies[j].size() - intersect.size());
+                    }
+
+                    txt << " U:" << std::fixed << std::setprecision(2) << c_uni 
+                        << " M:" << c_mar 
+                        << " J:" << jaccard << " |";
+                }
+                txt << "\n";
+            }
+            
+            // Vocabulary Diversity Metric
+            std::set<std::string> section_vocab;
+            size_t total_words_count = 0;
+            for(const auto& v : vocabularies) { 
+                section_vocab.insert(v.begin(), v.end()); 
+                total_words_count += v.size(); 
+            }
+            double vocab_unique_ratio = (total_words_count == 0) ? 0.0 : static_cast<double>(section_vocab.size()) / static_cast<double>(total_words_count);
+            txt << "\n  Section Vocabulary Diversity: " << std::fixed << std::setprecision(3) << vocab_unique_ratio 
+                << " (Low ratio means many repeated words across pages)\n";
+        }
+
+        // 4. Kasiski e Friedman Global no bloco da seção
+        txt << "\n[PERIODICITY SCAN ON MERGED BLOCK]\n";
+        std::map<std::string, std::vector<size_t>> sequences;
         size_t min_len = 4;
         for (size_t i = 0; i + min_len <= merged_runes.size(); ++i) {
-            std::vector<uint8_t> seq(merged_runes.begin() + i, merged_runes.begin() + i + min_len);
+            std::string seq;
+            for(size_t k = 0; k < min_len; ++k) seq += static_cast<char>(merged_runes[i+k]);
             sequences[seq].push_back(i);
         }
-
-        txt << "Top Kasiski Spacings (Len >= " << min_len << "):\n";
+        
         bool kasiski_found = false;
         for (auto const& [seq, pos] : sequences) {
-            if (pos.size() > 2) { // Mais de 2 aparições espalhadas pelo cluster
+            if (pos.size() > 2) {
+                if (!kasiski_found) txt << "  Kasiski Hits (Multi-Page Repeats):\n";
                 kasiski_found = true;
-                txt << "  Pattern [ ";
-                for (auto x : seq) txt << (int)x << " ";
-                txt << "] Positions: ";
+                txt << "    Pattern [ "; for (auto x : seq) txt << static_cast<int>(static_cast<uint8_t>(x)) << " ";
+                txt << "] Distances GCD: ";
                 std::vector<long long> deltas;
-                for (size_t i = 0; i < pos.size(); ++i) {
-                    txt << pos[i] << (i == pos.size() - 1 ? "" : ", ");
-                    if (i > 0) deltas.push_back(pos[i] - pos[i - 1]);
-                }
-                txt << " | GCD: " << gcd_vector(deltas) << "\n";
+                for (size_t k = 1; k < pos.size(); ++k) deltas.push_back(pos[k] - pos[k - 1]);
+                txt << gcd_vector(deltas) << "\n";
             }
         }
-    if (!kasiski_found) txt << "  (No strong repeated long pattern found)\n";
 
-        // 3. Friedman Global Varredura (Lag 2 a 120)
-    txt << "\nFriedman scan in block (Suspected lags > 0.045):\n";
+        txt << "  Friedman Scan (Best Lags):\n";
         for (int kl = 2; kl <= 120; ++kl) {
-            if (kl > merged_runes.size() / 2) break;
-
+            if (static_cast<size_t>(kl) > merged_runes.size() / 2) break;
             std::vector<size_t> col_counts(kl, 0);
             std::vector<std::array<double, 29>> col_dists(kl, std::array<double, 29>{0.0});
-
-            for (size_t i = 0; i < merged_runes.size(); ++i) {
-                col_dists[i % kl][merged_runes[i]]++;
-                col_counts[i % kl]++;
-            }
-
+            for (size_t i = 0; i < merged_runes.size(); ++i) { col_dists[i % kl][merged_runes[i]]++; col_counts[i % kl]++; }
             double avg_col_ioc = 0.0;
             for (int c = 0; c < kl; ++c) {
                 if (col_counts[c] <= 1) continue;
                 double sum = 0.0;
                 double N = static_cast<double>(col_counts[c]);
-                for (size_t i = 0; i < 29; ++i) {
-                    sum += col_dists[c][i] * (col_dists[c][i] - 1.0);
-                }
+                for (size_t k = 0; k < 29; ++k) sum += col_dists[c][k] * (col_dists[c][k] - 1.0);
                 avg_col_ioc += sum / (N * (N - 1.0));
             }
             avg_col_ioc /= kl;
-
-            // Limite sensível para relatar potenciais comprimentos de chave periódica longos
-            if (avg_col_ioc > 0.045) { 
-                txt << "  KeyLen " << std::setw(3) << kl << ": Avg Col IoC = " << std::fixed << std::setprecision(5) << avg_col_ioc << "\n";
-            }
+            if (avg_col_ioc > 0.045) txt << "    KL " << std::setw(3) << kl << ": IoC=" << std::fixed << std::setprecision(5) << avg_col_ioc << "\n";
         }
-        txt << "\n==========================================\n\n";
+        txt << "\n\n";
     }
 
     txt.close();
-    std::wcout << L"Cluster analysis saved to ../output/cluster_analysis.txt\n";
+    std::wcout << L"Sectional Analysis completed. See ../output/cluster_analysis.txt\n";
+}
+
+void run_auto_vigenere_solver() {
+    std::wcout << L"\n=== AUTO-VIGENERE STATISTICAL SOLVER ===\n";
+    auto target_dist = calculate_liber_unigram_target();
+
+    std::wcout << L"Enter Page Index (1-74): ";
+    size_t p_idx; std::cin >> p_idx;
+    if (p_idx < 1 || p_idx > core::G_PAGES.size()) return;
+    const auto& pg = core::G_PAGES[p_idx - 1];
+
+    std::wcout << L"Enter suspected Key Length (or 0 to auto-detect best KL 2-100): ";
+    int kl; std::cin >> kl;
+
+    core::ProcessedText pt_orig(pg.content);
+
+    auto interrupts_vec = core::get_possible_interrupters(p_idx);
+    std::set<size_t> interrupt_set(interrupts_vec.begin(), interrupts_vec.end());
+
+    std::vector<uint8_t> clean_runes;
+    size_t r_count = 0;
+    for (auto idx : pt_orig.indices()) {
+        if (idx < 29) {
+            if (interrupt_set.find(r_count) == interrupt_set.end()) {
+                clean_runes.push_back(idx);
+            }
+            r_count++;
+        }
+    }
+
+    if (clean_runes.empty()) { std::wcout << L"No valid runes (non-interrupts) found.\n"; return; }
+
+    // Auto-detection if KL is 0
+    if (kl <= 0) {
+        double best_avg_ioc = 0;
+        int best_kl = 1;
+        // Note: periodic_ioc should be called on a ProcessedText built from clean_runes
+        core::ProcessedText pt_clean("");
+        pt_clean.indices() = clean_runes;
+
+        for (int test_kl = 2; test_kl <= 100 && test_kl < (int)clean_runes.size()/2; ++test_kl) {
+            double current_ioc = pt_clean.periodic_ioc(test_kl);
+            if (current_ioc > best_avg_ioc) {
+                best_avg_ioc = current_ioc;
+                best_kl = test_kl;
+            }
+        }
+        std::wcout << L"[AUTO] Best detected Key Length: " << best_kl 
+                   << L" (Avg Col IoC: " << best_avg_ioc << L")\n";
+        kl = best_kl;
+    }
+
+    std::vector<int> discovered_key;
+    std::wcout << L"Solving columns...\n";
+
+    for (int col = 0; col < kl; ++col) {
+        std::vector<uint8_t> column_runes;
+        for (size_t i = col; i < clean_runes.size(); i += kl) {
+            column_runes.push_back(clean_runes[i]);
+        }
+
+        int best_shift = 0;
+        double best_fit = -1.0;
+
+        // Test each of 29 possible shifts for this column
+        for (int s = 0; s < 29; ++s) {
+            std::array<double, 29> col_dist{0.0};
+            for (auto r : column_runes) {
+                int decrypted_rune = (static_cast<int>(r) - s + 29) % 29;
+                col_dist[decrypted_rune]++;
+            }
+            for (double& d : col_dist) d /= static_cast<double>(column_runes.size());
+
+            // Measure column fitness using book Unigram Target
+            double current_fit = 0.0;
+            for (size_t i = 0; i < 29; ++i) {
+                // simple dot product/correlation for columns
+                current_fit += col_dist[i] * target_dist[i];
+            }
+
+            if (current_fit > best_fit) {
+                best_fit = current_fit;
+                best_shift = s;
+            }
+        }
+        discovered_key.push_back(best_shift);
+    }
+
+    // Display Deduced Keystream
+    std::wcout << GREEN_COLOR << L"\n[DEDUCED KEYSTREAM]: " << RESET_COLOR;
+    for (int k : discovered_key) std::wcout << k << L" ";
+    std::wcout << L"\n";
+
+    // Convert numeric keystream to human-readable latin and rune strings
+    std::string deduced_rune_key;
+    std::string deduced_latin_key;
+    for (int k : discovered_key) {
+        if (k >= 0 && k < static_cast<int>(core::RUNE_TABLE.size())) {
+            deduced_rune_key += core::RUNE_TABLE[k].rune;
+            deduced_latin_key += std::string(core::RUNE_TABLE[k].latin);
+        }
+    }
+
+    if (!deduced_latin_key.empty()) {
+        std::wcout << L"[DEDUCED KEY (latin)]: " << std::wstring(deduced_latin_key.begin(), deduced_latin_key.end()) << L"\n";
+    }
+    if (!deduced_rune_key.empty()) {
+        core::ProcessedText pk(deduced_rune_key);
+        std::string latin_from_runes = pk.to_latin();
+        if (!latin_from_runes.empty()) {
+            std::wcout << L"[DEDUCED KEY (runes -> latin)]: " << std::wstring(latin_from_runes.begin(), latin_from_runes.end()) << L"\n";
+        } else {
+            std::wcout << L"[DEDUCED KEY (runes)]: " << std::wstring(deduced_rune_key.begin(), deduced_rune_key.end()) << L"\n";
+        }
+    }
+
+    // Attempt partial translation
+    std::vector<uint8_t> result_indices = pt_orig.indices();
+    size_t r_pos = 0;
+    for (auto& idx : result_indices) {
+        if (idx < 29) {
+            int key_val = discovered_key[r_pos % kl];
+            idx = static_cast<uint8_t>((static_cast<int>(idx) - key_val + 29) % 29);
+            r_pos++;
+        }
+    }
+
+    // Apply numeric keystream directly (as before) to produce a baseline preview
+    core::ProcessedText solved_pt("", pg.index);
+    solved_pt.indices() = result_indices;
+    std::string latin = solved_pt.to_latin();
+
+    std::wcout << L"\nPreview with numeric keystream applied:\n"
+               << std::wstring(latin.begin(), latin.end()).substr(0, 500) << L"...\n";
+
+    // Also test using the deduced rune key and patched latin key as Vigenere keys
+    std::vector<std::pair<std::string, core::ProcessedText>> candidates;
+
+    if (!deduced_rune_key.empty()) {
+        core::ProcessedText pt_rune = pt_orig;
+        core::VigenereTransformer vt_rune(deduced_rune_key);
+        vt_rune.transform(pt_rune);
+        candidates.emplace_back(deduced_rune_key, std::move(pt_rune));
+    }
+
+    if (!deduced_latin_key.empty()) {
+        // try latin key converted to runes (if possible)
+        auto maybe_runes = core::to_runes(deduced_latin_key);
+        std::string as_runes = maybe_runes ? *maybe_runes : deduced_latin_key;
+        core::ProcessedText pt_lat = pt_orig;
+        core::VigenereTransformer vt_lat(as_runes);
+        vt_lat.transform(pt_lat);
+        candidates.emplace_back(as_runes, std::move(pt_lat));
+
+        // Also try patched latin variant (user heuristic)
+        std::string patched = core::patch_key(deduced_latin_key);
+        if (!patched.empty() && patched != deduced_latin_key) {
+            auto maybe_r = core::to_runes(patched);
+            std::string patched_runes = maybe_r ? *maybe_r : patched;
+            core::ProcessedText pt_p = pt_orig;
+            core::VigenereTransformer vt_p(patched_runes);
+            vt_p.transform(pt_p);
+            candidates.emplace_back(patched_runes, std::move(pt_p));
+        }
+    }
+
+    std::ofstream out("../output/auto_solver_result.txt", std::ios::app);
+    out << "Page: " << pg.name << " | KeyLen: " << kl << "\nKey (nums): ";
+    for (int k : discovered_key) out << k << " ";
+    out << "\nKey (latin): " << deduced_latin_key << "\nKey (runes): " << deduced_rune_key << "\n";
+
+    // Evaluate candidate transforms and write hits with fitness
+    for (auto &cand : candidates) {
+        double fit = score_text_fitness(cand.second, target_dist);
+        std::string latin_preview = cand.second.to_latin();
+        out << "Candidate Key: " << cand.first << " | Fit: " << fit << "\n";
+        out << "Preview: " << latin_preview.substr(0, 1000) << "\n---\n";
+        if (fit > 0.9) {
+            std::wcout << GREEN_COLOR << L"[CANDIDATE HIT] Page: " << std::wstring(pg.name.begin(), pg.name.end())
+                       << L" | Key: " << std::wstring(cand.first.begin(), cand.first.end()) << L" | Fit: " << fit << RESET_COLOR << L"\n";
+        }
+    }
+
+    out << "Text (numeric preview): " << latin << "\n\n";
+    out.close();
+}
+
+void run_manual_vigenere_attack(const std::string& key,
+                                const std::vector<size_t>& target_pages,
+                                const std::vector<size_t>& interrupt_positions,
+                                double fitness_threshold,
+                                const std::string& output_file)
+{
+    std::ofstream out(output_file, std::ios::app);
+    if (!out.is_open()) return;
+
+    auto target_dist = calculate_liber_unigram_target();
+
+    // Prepare key: accept Latin text or runes
+    auto maybe_runes = core::to_runes(key);
+    std::string runes_str = maybe_runes ? *maybe_runes : key;
+
+    // Also compute patched key variant (user's idea)
+    std::string patched = core::patch_key(key);
+
+    for (size_t pidx : target_pages) {
+        if (pidx < 1 || pidx > core::G_PAGES.size()) continue;
+        const auto& pg = core::G_PAGES[pidx - 1];
+        if (pg.content.empty()) continue;
+
+        core::ProcessedText pt(pg.content, pg.index);
+        std::set<size_t> int_set(interrupt_positions.begin(), interrupt_positions.end());
+
+        // Try original key and patched key (if different)
+        std::vector<std::string> candidates = { runes_str };
+        if (!patched.empty() && patched != key) {
+            candidates.push_back(patched);
+        }
+
+        for (const auto& candidate_key : candidates) {
+            // VigenereTransformer expects utf8 runes string; we pass candidate_key as-is
+            core::ProcessedText pt_copy = pt;
+            core::VigenereTransformer vt(candidate_key);
+            vt.transform(pt_copy);
+
+            double fit = score_text_fitness(pt_copy, target_dist);
+            std::string full_latin = pt_copy.to_latin();
+
+            if (fit >= fitness_threshold) {
+                out << "=== MANUAL VIGENERE HIT ===\n";
+                
+                // Improved display key logic to avoid "???"
+                std::string display_key = key; 
+                if (candidate_key == patched) display_key = patched + " (PATCHED)";
+
+                std::wstring wpage(pg.name.begin(), pg.name.end());
+                std::wstring wkey(display_key.begin(), display_key.end());
+                std::wstring wpreview(full_latin.begin(), full_latin.end());
+
+                out << "Page: " << pg.name << " | Key: " << display_key << " | Fit: " << fit << "\n";
+                out << "Preview: " << full_latin.substr(0, 800) << "\n\n";
+
+                std::wcout << GREEN_COLOR << L"\n[MANUAL HIT] Fit: " << std::fixed << std::setprecision(5) << fit 
+                           << L" | Page: " << wpage << L" | Key: " << wkey << RESET_COLOR << L"\n"
+                           << L"Decrypted Content (Snippet):\n" 
+                           << (wpreview.size() > 800 ? wpreview.substr(0, 800) : wpreview) << L"...\n"
+                           << L"---------------------------------------------------\n";
+            }
+        }
+    }
+    out.close();
+}
+
+void run_gematria_sum_analysis() {
+    std::wcout << L"\n=== GEMATRIA SUM ANALYSIS (Word-level Numerology) ===\n";
+    std::ofstream f("../output/gematria_sums.txt");
+    std::ofstream csv("../output/gematria_sums.csv");
+    csv << "Page,WordIndex,Sum,IsPrime,IsFibonacci,IsLucas,IsSquare,DigitalRoot\n";
+
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty()) continue;
+
+        core::ProcessedText pt(pg.content, pg.index);
+        auto words = pt.get_words();
+        if (words.empty()) continue;
+
+        f << "Page: " << pg.name << "\n";
+        size_t word_idx = 0;
+        std::vector<int> sums;
+        
+        int fib_count = 0;
+        int sq_count = 0;
+        int prime_count = 0;
+        int lucas_count = 0;
+
+        auto is_fib = [](int n) {
+            auto is_perfect_sq = [](long long x) { long long s = static_cast<long long>(std::sqrt(static_cast<double>(x))); return s * s == x; };
+            return is_perfect_sq(5LL*n*n + 4) || is_perfect_sq(5LL*n*n - 4);
+        };
+        auto is_lucas = [](int n) {
+            auto is_perfect_sq = [](long long x) { long long s = static_cast<long long>(std::sqrt(static_cast<double>(x))); return s * s == x; };
+            return is_perfect_sq(5LL*n*n + 20) || is_perfect_sq(5LL*n*n - 20);
+        };
+        auto is_sq = [](int n) { int s = static_cast<int>(std::sqrt(static_cast<double>(n))); return s * s == n; };
+
+        for (const auto& word : words) {
+            int sum = 0;
+            for (uint8_t rune_idx : word) {
+                // Use prime value defined in RUNE_TABLE
+                sum += core::RUNE_TABLE[rune_idx].prime;
+            }
+            sums.push_back(sum);
+
+            int digital_root = 1 + ((sum - 1) % 9);
+            bool prime_sum = core::is_prime(sum);
+            bool fib_sum = is_fib(sum);
+            bool luc_sum = is_lucas(sum);
+            bool sq_sum = is_sq(sum);
+            
+            if(prime_sum) prime_count++;
+            if(fib_sum) fib_count++;
+            if(luc_sum) lucas_count++;
+            if(sq_sum) sq_count++;
+
+            csv << pg.name << "," << word_idx << "," << sum << "," 
+                << (prime_sum ? "1" : "0") << "," << (fib_sum ? "1" : "0") << ","
+                << (luc_sum ? "1" : "0") << "," << (sq_sum ? "1" : "0") << "," << digital_root << "\n";
+            
+            word_idx++;
+        }
+
+        // Statistical analysis of page sums
+        double avg = sums.empty() ? 0.0 : std::accumulate(sums.begin(), sums.end(), 0.0) / static_cast<double>(sums.size());
+
+        f << "  Words: " << sums.size() << "\n"
+          << "  Average Sum: " << std::fixed << std::setprecision(2) << avg << "\n"
+          << "  Prime Sums:  " << prime_count << " (" << (sums.empty() ? 0.0 : 100.0 * static_cast<double>(prime_count) / static_cast<double>(sums.size())) << "%)\n"
+          << "  Fibonacci:   " << fib_count << "\n"
+          << "  Lucas Num:   " << lucas_count << "\n"
+          << "  Squares:     " << sq_count << "\n";
+
+        // Check for Arithmetic Progressions in sums (common in transposition ciphers)
+        if (sums.size() >= 4) {
+            std::map<int, int> delta_freq;
+            for(size_t i=1; i<sums.size(); ++i) delta_freq[sums[i] - sums[i-1]]++;
+            for(auto const& [d, count] : delta_freq) {
+                if (count > (int)sums.size() / 4) f << "  [!] COMMON SUM DELTA DETECTED: " << d << " (" << count << "x)\n";
+            }
+        }
+        
+        // Check if sums are multiples of a common number (GCD)
+        if (sums.size() > 1) {
+            int common_gcd = sums[0];
+            for(size_t i=1; i<sums.size(); ++i) common_gcd = std::gcd(common_gcd, sums[i]);
+            if (common_gcd > 1) f << "  [!] ALL WORDS ARE MULTIPLES OF: " << common_gcd << "\n";
+        }
+        f << "------------------------------------------\n";
+    }
+
+    f.close();
+    csv.close();
+    std::wcout << L"Gematria analysis saved to ../output/gematria_sums.txt\n";
+}
+
+void run_multi_metric_clustering() {
+    std::wcout << L"\n=== MULTI-METRIC CLUSTER GROUPING (Max 2 clusters per page) ===\n";
+    std::ofstream f("../output/probable_clusters_report.txt");
+    if (!f.is_open()) return;
+
+    struct PageData {
+        size_t index;
+        std::string name;
+        double ioc;
+        double entropy;
+        std::array<double, 29> runic_dist;
+        std::vector<double> transition_mat;
+    };
+
+    std::vector<PageData> all_data;
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty()) continue;
+        core::ProcessedText pt(pg.content, pg.index);
+        all_data.push_back({
+            pg.index,
+            std::string(pg.name),
+            pt.index_of_coincidence(),
+            pt.entropy(),
+            pt.runic_distribution(),
+            pt.transition_matrix()
+        });
+    }
+
+    struct Edge { size_t u, v; double sim; };
+    std::vector<Edge> edges;
+    for (size_t i = 0; i < all_data.size(); ++i) {
+        for (size_t j = i + 1; j < all_data.size(); ++j) {
+            const auto& a = all_data[i];
+            const auto& b = all_data[j];
+
+            double c_uni = calculate_correlation(a.runic_dist, b.runic_dist);
+            double c_mar = calculate_correlation(a.transition_mat, b.transition_mat);
+            double i_sim = std::exp(-std::abs(a.ioc - b.ioc) / 0.005);
+            double e_sim = std::exp(-std::abs(a.entropy - b.entropy) / 0.1);
+
+            // Weighted similarity: Unigram (40%), Markov (30%), IoC (15%), Entropy (15%)
+            double total_sim = (c_uni * 0.4) + (c_mar * 0.3) + (i_sim * 0.15) + (e_sim * 0.15);
+            if (total_sim > 0.82) { 
+                edges.push_back({i, j, total_sim});
+            }
+        }
+    }
+    std::sort(edges.begin(), edges.end(), [](const Edge& a, const Edge& b) { return a.sim > b.sim; });
+
+    std::vector<std::set<size_t>> clusters;
+    std::map<size_t, int> participation;
+
+    for (const auto& edge : edges) {
+        int cluster_idx = -1;
+        for (size_t i = 0; i < clusters.size(); ++i) {
+            if (clusters[i].count(edge.u) || clusters[i].count(edge.v)) {
+                cluster_idx = (int)i;
+                break;
+            }
+        }
+
+        if (cluster_idx != -1) {
+            size_t node_to_add = clusters[cluster_idx].count(edge.u) ? edge.v : edge.u;
+            if (participation[node_to_add] < 2 && !clusters[cluster_idx].count(node_to_add)) {
+                clusters[cluster_idx].insert(node_to_add);
+                participation[node_to_add]++;
+            }
+        } else if (participation[edge.u] < 2 && participation[edge.v] < 2) {
+            std::set<size_t> new_cluster;
+            new_cluster.insert(edge.u);
+            new_cluster.insert(edge.v);
+            clusters.push_back(new_cluster);
+            participation[edge.u]++;
+            participation[edge.v]++;
+        }
+    }
+
+    f << "=== PROBABLE PAGE CLUSTERS REPORT ===\n";
+    f << "Generated based on Multi-Metric Similarity (Correlation, IoC, Entropy)\n";
+    f << "Constraint: A page can belong to at most 2 clusters.\n\n";
+
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        if (clusters[i].size() < 2) continue;
+        f << "--- Cluster #" << i + 1 << " (" << clusters[i].size() << " pages) ---\n";
+        for (size_t idx : clusters[i]) {
+            const auto& d = all_data[idx];
+            f << "  Page: " << std::left << std::setw(10) << d.name 
+              << " | IoC: " << std::fixed << std::setprecision(4) << d.ioc 
+              << " | Entropy: " << d.entropy << " bits\n";
+        }
+        f << "\n";
+    }
+
+    f.close();
+    std::wcout << L"Probable clusters report saved: ../output/probable_clusters_report.txt\n";
+}
+
+void run_vocabulary_overlap_analysis(const std::string& output_csv) {
+    std::wcout << L"\n=== VOCABULARY OVERLAP ANALYSIS (Jaccard Similarity) ===\n";
+    std::ofstream csv(output_csv);
+    if (!csv.is_open()) return;
+
+    struct PageVocab {
+        std::string name;
+        std::set<std::string> words;
+    };
+
+    std::vector<PageVocab> all_vocabs;
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty()) continue;
+        core::ProcessedText pt(pg.content, pg.index);
+        auto words_vec = pt.get_words();
+        std::set<std::string> word_set;
+        for(const auto& w : words_vec) word_set.insert(std::string(w.begin(), w.end()));
+        all_vocabs.push_back({std::string(pg.name), std::move(word_set)});
+    }
+
+    csv << "Page";
+    for (const auto& pv : all_vocabs) csv << "," << pv.name;
+    csv << "\n";
+
+    for (const auto& pv1 : all_vocabs) {
+        csv << pv1.name;
+        for (const auto& pv2 : all_vocabs) {
+            if (pv1.words.empty() || pv2.words.empty()) {
+                csv << ",0.0";
+                continue;
+            }
+
+            std::vector<std::string> intersect;
+            std::set_intersection(pv1.words.begin(), pv1.words.end(),
+                                  pv2.words.begin(), pv2.words.end(),
+                                  std::back_inserter(intersect));
+            
+            double jaccard = static_cast<double>(intersect.size()) / 
+                             static_cast<double>(pv1.words.size() + pv2.words.size() - intersect.size());
+            csv << "," << std::fixed << std::setprecision(5) << jaccard;
+        }
+        csv << "\n";
+    }
+    csv.close();
+    std::wcout << L"Vocabulary overlap matrix saved to: " << std::wstring(output_csv.begin(), output_csv.end()) << L"\n";
+}
+
+void run_structural_segment_analysis(const std::string& output_csv) {
+    std::wcout << L"\n=== STRUCTURAL SEGMENT ANALYSIS ===\n";
+    std::ofstream csv(output_csv);
+    if (!csv.is_open()) return;
+
+    csv << "Page,Type,Length\n";
+
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty()) continue;
+        
+        core::ProcessedText pt(pg.content, pg.index);
+        auto& indices = pt.indices();
+
+        // 1. Comprimento de Palavras
+        auto words = pt.get_words();
+        for (const auto& w : words) {
+            csv << pg.name << ",Word," << w.size() << "\n";
+        }
+
+        // 2. Comprimento de Linhas (distância entre SPECIAL_SLASH_IDX ou Newline)
+        size_t current_line_len = 0;
+        for (uint8_t idx : indices) {
+            if (idx < 29) {
+                current_line_len++;
+            } else if (idx == core::SPECIAL_SLASH_IDX || idx == core::SPECIAL_NEWLINE_IDX) {
+                if (current_line_len > 0) {
+                    csv << pg.name << ",Line," << current_line_len << "\n";
+                    current_line_len = 0;
+                }
+            }
+        }
+        if (current_line_len > 0) csv << pg.name << ",Line," << current_line_len << "\n";
+
+        // 3. Comprimento de Cláusulas (SPECIAL_PERIOD_IDX)
+        size_t current_clause_len = 0;
+        for (uint8_t idx : indices) {
+            if (idx < 29) {
+                current_clause_len++;
+            } else if (idx == core::SPECIAL_PERIOD_IDX) {
+                if (current_clause_len > 0) {
+                    csv << pg.name << ",Clause," << current_clause_len << "\n";
+                    current_clause_len = 0;
+                }
+            }
+        }
+    }
+    csv.close();
+    std::wcout << L"Structural segments exported to: " << std::wstring(output_csv.begin(), output_csv.end()) << L"\n";
+}
+
+void run_mathematical_direction_search(int num_threads) {
+    (void)num_threads; // Silencia o aviso de parâmetro não utilizado
+    std::wcout << L"\n=== MATHEMATICAL DIRECTION SEARCH (Numbers are the direction) ===\n";
+    auto target_dist = calculate_liber_unigram_target();
+    std::ofstream f("../output/math_direction_hits.txt", std::ios::app);
+
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty() || core::has_known_solution(pg.index)) continue;
+
+        core::ProcessedText pt_orig(pg.content, pg.index);
+        const auto& indices = pt_orig.indices();
+
+        std::vector<double> offset_scores;
+        std::vector<std::string> previews;
+        
+        // Teste 1: Keystream baseado na Função Totiente do Índice da Runa
+        // K[i] = phi(word_index + offset) % 29
+        for (int offset = 0; offset < 100; ++offset) {
+            std::vector<uint8_t> test = indices;
+            int rune_count = 0;
+            for (auto& idx : test) {
+                if (idx < 29) {
+                    int shift = core::euler_totient(rune_count + offset) % 29;
+                    idx = static_cast<uint8_t>((idx - shift + 29) % 29);
+                    rune_count++;
+                }
+            }
+            core::ProcessedText pt_res("", pg.index);
+            pt_res.indices() = test;
+            double fit = score_text_fitness(pt_res, target_dist);
+            offset_scores.push_back(fit);
+            previews.push_back(pt_res.to_latin().substr(0, 100));
+        }
+
+        // Cálculo de estatísticas para detecção de picos (Z-Score)
+        double sum = std::accumulate(offset_scores.begin(), offset_scores.end(), 0.0);
+        double mean = sum / static_cast<double>(offset_scores.size());
+        double sq_sum = std::inner_product(offset_scores.begin(), offset_scores.end(), offset_scores.begin(), 0.0);
+        double stdev = std::sqrt(sq_sum / static_cast<double>(offset_scores.size()) - mean * mean);
+
+        for (size_t offset = 0; offset < offset_scores.size(); ++offset) {
+            double z_score = (offset_scores[offset] - mean) / (stdev + 0.00001);
+            
+            // Um Z-Score > 3.0 indica um outlier estatístico (um pico real)
+            if (z_score > 3.5 && offset_scores[offset] > 0.90) {
+                f << "!!! REAL PEAK DETECTED !!!\n";
+                f << "HIT [Totient Index] | Page: " << pg.name << " | Offset: " << offset 
+                  << " | Fitness: " << offset_scores[offset] << " | Z-Score: " << z_score << "\n";
+                f << "Text: " << previews[offset] << "...\n---\n";
+            }
+        }
+        // Teste 2: Keystream baseado na Soma de Gematria das palavras
+        // A "direção" pode ser a soma da palavra anterior influenciando a próxima
+        auto words = pt_orig.get_words();
+        std::vector<int> word_sums;
+        for (const auto& w : words) {
+            int s = 0;
+            for (uint8_t r : w) s += core::RUNE_TABLE[r].prime;
+            word_sums.push_back(s);
+        }
+
+        if (!word_sums.empty()) {
+            // Tentar usar o Totiente da soma da palavra como shift para a própria palavra
+            std::vector<uint8_t> test_word_shift = indices;
+            size_t current_word_idx = 0;
+            for (size_t i = 0; i < test_word_shift.size(); ++i) {
+                if (test_word_shift[i] < 29) {
+                    int shift = core::euler_totient(word_sums[current_word_idx]) % 29;
+                    test_word_shift[i] = static_cast<uint8_t>((test_word_shift[i] - shift + 29) % 29);
+                } else if (test_word_shift[i] == core::SPECIAL_HYPHEN_IDX || test_word_shift[i] == core::SPECIAL_SPACE_IDX) {
+                    if (current_word_idx < word_sums.size() - 1) current_word_idx++;
+                }
+            }
+            core::ProcessedText pt_word_res("", pg.index);
+            pt_word_res.indices() = test_word_shift;
+            if (score_text_fitness(pt_word_res, target_dist) > 0.85) {
+                f << "HIT [Word Sum Totient] | Page: " << pg.name << "\n";
+                f << "Text: " << pt_word_res.to_latin().substr(0, 200) << "\n---\n";
+            }
+        }
+    }
+    std::wcout << L"Mathematical search finished. Results in ../output/math_direction_hits.txt\n";
+}
+
+void run_merged_corpus_analysis(size_t start_page, size_t end_page) {
+    std::wcout << L"\n=== MERGED CORPUS ANALYSIS (Pages " << start_page << L" to " << end_page << L") ===\n";
+    
+    std::vector<uint8_t> merged_runes;
+    for (size_t i = start_page; i <= end_page; ++i) {
+        for (const auto& pg : core::G_PAGES) {
+            if (pg.index == i) {
+                core::ProcessedText pt(pg.content);
+                for (auto r : pt.indices()) if (r < 29) merged_runes.push_back(r);
+            }
+        }
+    }
+
+    if (merged_runes.empty()) return;
+
+    core::ProcessedText pt_merged("");
+    pt_merged.indices() = merged_runes;
+
+    std::wcout << L"Total Runes: " << merged_runes.size() << L"\n";
+    std::wcout << L"Global IoC: " << pt_merged.index_of_coincidence() << L"\n";
+    std::wcout << L"Global Entropy: " << pt_merged.entropy() << L"\n";
+
+    // Kasiski em larga escala
+    auto repeats = pt_merged.kasiski_examination(5);
+    std::wcout << L"Long repeats (>5 runes) found: " << repeats.size() << L"\n";
+    
+    std::ofstream f("../output/merged_corpus_report.txt");
+    f << "MERGED CORPUS " << start_page << "-" << end_page << "\n";
+    f << "Size: " << merged_runes.size() << " runes\n\n";
+    
+    for (auto const& [seq, pos] : repeats) {
+        if (pos.size() > 2) {
+            f << "Pattern: "; for(auto x : seq) f << (int)x << " ";
+            f << " | Found " << pos.size() << " times. Distances: ";
+            for(size_t k=1; k<pos.size(); ++k) f << (pos[k]-pos[k-1]) << " ";
+            f << "\n";
+        }
+    }
+    f.close();
+    std::wcout << L"Report saved to ../output/merged_corpus_report.txt\n";
+}
+
+void run_route_transposition_search(const std::vector<size_t>& target_pages) {
+    std::wcout << L"\n=== ROUTE TRANSPOSITION SEARCH (Scytale/Grid/Primes) ===\n";
+    
+    std::vector<int> candidate_widths = {17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73};
+    auto target_dist = calculate_liber_unigram_target();
+
+    for (size_t p_idx : target_pages) {
+        const core::Page* pg = nullptr;
+        for (const auto& p : core::G_PAGES) if (p.index == p_idx) pg = &p;
+        if (!pg || pg->content.empty()) continue;
+
+        core::ProcessedText pt_orig(pg->content);
+        std::vector<uint8_t> runes;
+        for (auto r : pt_orig.indices()) if (r < 29) runes.push_back(r);
+        
+        if (runes.size() < 40) continue;
+
+        for (int w : candidate_widths) {
+            if (static_cast<size_t>(w) >= runes.size()) continue;
+
+            int rows = (static_cast<int>(runes.size()) + w - 1) / w;
+            std::vector<std::vector<uint8_t>> grid(rows, std::vector<uint8_t>(w, 255)); // 255 = padding
+
+            // Preenche a grade (Row-major)
+            for (size_t i = 0; i < runes.size(); ++i) {
+                grid[i / w][i % w] = runes[i];
+            }
+
+            // Testar Rotas
+            auto test_route = [&](const std::vector<uint8_t>& reordered, const std::string& label) {
+                core::ProcessedText pt_test("");
+                pt_test.indices() = reordered;
+                double ioc = pt_test.index_of_coincidence();
+                
+                // Se o IoC subir para perto de 0.045-0.050, temos algo
+                if (ioc > 0.048) {
+                    std::wcout << GREEN_COLOR << L"[POTENTIAL ROUTE] " << RESET_COLOR 
+                               << L"Page: " << p_idx << L" | Width: " << w 
+                               << L" | Route: " << std::wstring(label.begin(), label.end())
+                               << L" | IoC: " << ioc << L"\n";
+                    
+                    // Testar se um Atbash simples sobre a rota resolve
+                    for(int s=0; s<29; ++s) {
+                        core::ProcessedText pt_atbash = pt_test;
+                        core::AtbashTransformer(s).transform(pt_atbash);
+                        if (score_text_fitness(pt_atbash, target_dist) > 0.90) {
+                            std::wcout << GREEN_COLOR << L"  [!!!] HIT WITH ATBASH+" << s << L" ON THIS ROUTE!\n" << RESET_COLOR;
+                            std::wcout << L"  Preview: " << std::wstring(pt_atbash.to_latin().begin(), pt_atbash.to_latin().end()).substr(0,100) << L"\n";
+                        }
+                    }
+                }
+            };
+
+            // 1. Column-major (Scytale)
+            std::vector<uint8_t> col_major;
+            for (int c = 0; c < w; ++c) {
+                for (int r = 0; r < rows; ++r) {
+                    if (grid[r][c] != 255) col_major.push_back(grid[r][c]);
+                }
+            }
+            test_route(col_major, "Column-Major");
+
+            // 2. Boustrophedon (Serpente)
+            std::vector<uint8_t> boustrophedon;
+            for (int r = 0; r < rows; ++r) {
+                if (r % 2 == 0) {
+                    for (int c = 0; c < w; ++c) if (grid[r][c] != 255) boustrophedon.push_back(grid[r][c]);
+                } else {
+                    for (int c = w - 1; c >= 0; --c) if (grid[r][c] != 255) boustrophedon.push_back(grid[r][c]);
+                }
+            }
+            test_route(boustrophedon, "Boustrophedon");
+
+            // 3. Simple Diagonal (Zig-zag)
+            std::vector<uint8_t> diagonal;
+            for (int k = 0; k < rows + w - 1; ++k) {
+                for (int j = 0; j <= k; ++j) {
+                    int r = j;
+                    int c = k - j;
+                    if (r < rows && c < w && grid[r][c] != 255) diagonal.push_back(grid[r][c]);
+                }
+            }
+            test_route(diagonal, "Diagonal");
+            
+            // 4. Inward Spiral (Espiral)
+            std::vector<uint8_t> spiral;
+            int top = 0, bottom = rows - 1, left = 0, right = w - 1;
+            while (top <= bottom && left <= right) {
+                for (int i = left; i <= right; ++i) if(grid[top][i] != 255) spiral.push_back(grid[top][i]);
+                top++;
+                for (int i = top; i <= bottom; ++i) if(grid[i][right] != 255) spiral.push_back(grid[i][right]);
+                right--;
+                if (top <= bottom) {
+                    for (int i = right; i >= left; --i) if(grid[bottom][i] != 255) spiral.push_back(grid[bottom][i]);
+                    bottom--;
+                }
+                if (left <= right) {
+                    for (int i = bottom; i >= top; --i) if(grid[i][left] != 255) spiral.push_back(grid[i][left]);
+                    left++;
+                }
+            }
+            test_route(spiral, "Spiral");
+        }
+    }
+}
+
+void run_secrets_analysis() {
+    std::wcout << L"\n=== DEEP SECRETS ANALYSIS ===\n";
+
+    // 0. Análise do DEEP_HASH (Distribuição de Nibbles)
+    std::ofstream hash_csv("../output/deep_hash_distribution.csv");
+    hash_csv << "Nibble,Count\n";
+    std::array<int, 16> nibbles{0};
+    for(char c : core::secrets::DEEP_HASH) {
+        int val = -1;
+        if(isdigit(c)) val = c - '0';
+        else if(c >= 'a' && c <= 'f') val = c - 'a' + 10;
+        if(val != -1) nibbles[val]++;
+    }
+    for(int i=0; i<16; ++i) {
+        hash_csv << std::hex << i << "," << std::dec << nibbles[i] << "\n";
+    }
+    hash_csv.close();
+    std::wcout << L"  - Deep Hash distribution saved.\n";
+    
+    // 1. Exportação do Stream Cuneiforme (Base60)
+    std::ofstream cun_csv("../output/cuneiform_stream.csv");
+    cun_csv << "Index,Raw,Decimal,RuneIndex\n";
+    auto b60_to_dec = [](std::string_view s) -> int {
+        auto val = [](char c) -> int {
+            if (isdigit(c)) return c - '0';
+            if (isupper(c)) return c - 'A' + 10;
+            if (islower(c)) return c - 'a' + 36;
+            return 0;
+        };
+        int r = 0;
+        for (char c : s) r = r * 60 + val(c);
+        return r;
+    };
+
+    std::vector<uint8_t> cunei_key;
+    std::vector<uint8_t> primes_key;
+    for (size_t i = 0; i < core::secrets::CUNEIFORM_STREAM.size(); ++i) {
+        int dec = b60_to_dec(core::secrets::CUNEIFORM_STREAM[i]);
+        cun_csv << i << "," << core::secrets::CUNEIFORM_STREAM[i] << "," << dec << "," << (dec % 29) << "\n";
+        cunei_key.push_back(static_cast<uint8_t>(dec % 29));
+    }
+    for (int p : core::secrets::MISSING_PRIMES_2013) {
+        primes_key.push_back(static_cast<uint8_t>(p % 29));
+    }
+    cun_csv.close();
+    std::wcout << L"  - Cuneiform stream exported (Base60 -> RuneIndex).\n";
+
+    // 2. Exportação das Matrizes dos Secrets para Heatmap
+    std::ofstream mat_csv("../output/secrets_matrices.csv");
+    mat_csv << "MatrixID,Row,Col,Value\n";
+    for (size_t m = 0; m < core::secrets::SQUARES.size(); ++m) {
+        const auto& matrix = core::secrets::SQUARES[m];
+        for (size_t r = 0; r < matrix.size(); ++r) {
+            for (size_t c = 0; c < matrix[r].size(); ++c) {
+                mat_csv << m << "," << r << "," << c << "," << matrix[r][c] << "\n";
+            }
+        }
+    }
+    mat_csv.close();
+    std::wcout << L"  - Secret matrices exported.\n";
+
+    // 3. Busca por Missing Primes (2013) nas somas de Gematria
+    std::ofstream hits("../output/missing_primes_hits.txt");
+    hits << "=== MISSING PRIMES 2013 CROSS-REFERENCE HITS ===\n\n";
+    hits << "Also checking for the '3301 Spiral' constant: Sum + MissingPrime = 3301\n\n";
+    std::set<int> mp_set(core::secrets::MISSING_PRIMES_2013.begin(), core::secrets::MISSING_PRIMES_2013.end());
+    auto target_dist = calculate_liber_unigram_target();
+    std::filesystem::create_directories("../output/decrypted");
+    
+    std::set<size_t> transposition_tested_pages;
+    for (const auto& pg : core::G_PAGES) {
+        if (pg.content.empty()) continue;
+        core::ProcessedText pt(pg.content);
+        auto words = pt.get_words();
+        int page_hits = 0;
+        int consecutive_hits = 0;
+
+        for (size_t w_idx = 0; w_idx < words.size(); ++w_idx) {
+            int g_sum = 0;
+            std::string latin = "";
+            for (auto r : words[w_idx]) {
+                g_sum += core::RUNE_TABLE[r].prime;
+                latin += core::RUNE_TABLE[r].latin;
+            }
+
+            bool is_hit = false;
+            bool is_spiral = false;
+
+            // Filtrar ruído: Apenas palavras com mais de uma runa ou somas > 120
+            if (mp_set.count(g_sum) && (words[w_idx].size() > 1 || g_sum > 120)) {
+                is_hit = true;
+                hits << "HIT! Page: " << pg.name << " | Word Index: " << w_idx 
+                     << " | Sum: " << g_sum << " | Latin: " << latin << " (Matches Missing Prime)\n";
+            }
+
+            if (mp_set.count(3301 - g_sum)) {
+                is_spiral = true;
+                hits << "SPIRAL HIT! Page: " << pg.name << " | Word Index: " << w_idx
+                     << " | Sum: " << g_sum << " | Latin: " << latin << " | Complement: " << (3301 - g_sum) << " (is Missing Prime)\n";
+            }
+
+            if (is_hit || is_spiral) {
+                page_hits++;
+                consecutive_hits++;
+                
+                // Se detectarmos uma sequência de 3 ou mais, tentamos um ataque local
+                if (consecutive_hits >= 3) {
+                    hits << "  [!!!] ANCHOR SEQUENCE DETECTED at Index " << w_idx - 2 << " on " << pg.name << "\n";
+                    
+                    if (!core::has_known_solution(pg.index)) {
+                        // TESTE DE HIPÓTESE: Cuneiform e Missing Primes como Chaves
+                        for (auto& [name, key_stream] : std::vector<std::pair<std::string, std::vector<uint8_t>>>{
+                            {"Cuneiform", cunei_key}, {"MissingPrimes", primes_key}
+                        }) {
+                            core::ProcessedText pt_test(pg.content, pg.index);
+                            auto& indices = pt_test.indices();
+                            size_t k_ptr = 0;
+                            for(size_t i=0; i<indices.size(); ++i) {
+                                if (indices[i] < 29) {
+                                    int key = key_stream[k_ptr % key_stream.size()];
+                                    indices[i] = static_cast<uint8_t>((static_cast<int>(indices[i]) - key + 29) % 29);
+                                    k_ptr++;
+                                }
+                            }
+
+                            // Testar se existe um Atbash overlay (comum no Liber Primus)
+                            for (int s = 0; s < 29; ++s) {
+                                core::ProcessedText pt_atbash = pt_test;
+                                core::AtbashTransformer(s).transform(pt_atbash);
+                                double fitness = score_text_fitness(pt_atbash, target_dist);
+
+                                if (fitness > 0.91) {
+                                    std::string full_text = pt_atbash.to_latin();
+                                    hits << "  [DISCOVERY] " << name << " + Atbash+" << s << " | Fit: " << fitness << "\n";
+                                    hits << "  Snippet: " << full_text.substr(0, 100) << "...\n";
+                                    
+                                    std::string out_fn = "../output/decrypted/" + std::string(pg.name) + "_" + name + "_Atbash" + std::to_string(s) + ".txt";
+                                    std::ofstream out_f(out_fn);
+                                    out_f << "Method: Vigenere (" << name << ") + Atbash(" << s << ")\n";
+                                    out_f << "Fitness: " << fitness << "\n\n" << full_text;
+                                    
+                                    std::wcout << GREEN_COLOR << L"  [!!!] HIGH FITNESS on " << std::wstring(pg.name.begin(), pg.name.end()) 
+                                               << L": " << fitness << L" (" << std::wstring(name.begin(), name.end()) << L")\n" << RESET_COLOR;
+                                }
+                            }
+                        }
+
+                        // TESTE DE TRANSPOSIÇÃO (Spiral, Diagonal, Columnar)
+                        if (transposition_tested_pages.find(pg.index) == transposition_tested_pages.end()) {
+                            transposition_tested_pages.insert(pg.index);
+                            std::vector<uint8_t> clean_runes;
+                            for (auto r : pt.indices()) if (r < 29) clean_runes.push_back(r);
+
+                            if (clean_runes.size() >= 40) {
+                                // Testar larguras comuns e números primos
+                                for (int w : {3, 5, 7, 11, 13, 17, 19, 23, 29}) {
+                                    if (static_cast<size_t>(w) >= clean_runes.size()) continue;
+                                    int rows = (static_cast<int>(clean_runes.size()) + w - 1) / w;
+                                    std::vector<std::vector<uint8_t>> grid(rows, std::vector<uint8_t>(w, 255));
+                                    for (size_t i = 0; i < clean_runes.size(); ++i) grid[i / w][i % w] = clean_runes[i];
+
+                                    auto check_route = [&](const std::vector<uint8_t>& reordered, const std::string& label) {
+                                        core::ProcessedText pt_t(""); pt_t.indices() = reordered;
+                                        for (int s = 0; s < 29; ++s) {
+                                            core::ProcessedText pt_atbash = pt_t;
+                                            core::AtbashTransformer(s).transform(pt_atbash);
+                                            double fitness = score_text_fitness(pt_atbash, target_dist);
+                                            if (fitness > 0.90) {
+                                                hits << "  [DISCOVERY] Route: " << label << " (W:" << w << ") + Atbash+" << s << " | Fit: " << fitness << "\n";
+                                                hits << "  Snippet: " << pt_atbash.to_latin().substr(0, 100) << "...\n";
+                                                std::wcout << GREEN_COLOR << L"  [!!!] ROUTE HIT on " << std::wstring(pg.name.begin(), pg.name.end()) 
+                                                           << L": " << std::wstring(label.begin(), label.end()) << RESET_COLOR << L"\n";
+                                            }
+                                        }
+                                    };
+
+                                    // 1. Columnar (Leitura vertical)
+                                    std::vector<uint8_t> col_major;
+                                    for (int c = 0; c < w; ++c) for (int r = 0; r < rows; ++r) if (grid[r][c] != 255) col_major.push_back(grid[r][c]);
+                                    check_route(col_major, "Columnar");
+
+                                    // 2. Diagonal (Zig-zag)
+                                    std::vector<uint8_t> diagonal;
+                                    for (int k = 0; k < rows + w - 1; ++k) {
+                                        for (int j = 0; j <= k; ++j) {
+                                            int r_idx = j; int c_idx = k - j;
+                                            if (r_idx < rows && c_idx < w && grid[r_idx][c_idx] != 255) diagonal.push_back(grid[r_idx][c_idx]);
+                                        }
+                                    }
+                                    check_route(diagonal, "Diagonal");
+
+                                    // 3. Inward Spiral (Espiral para dentro)
+                                    std::vector<uint8_t> spiral;
+                                    int t_row = 0, b_row = rows - 1, l_col = 0, r_col = w - 1;
+                                    while (t_row <= b_row && l_col <= r_col) {
+                                        for (int i = l_col; i <= r_col; ++i) if(grid[t_row][i] != 255) spiral.push_back(grid[t_row][i]);
+                                        t_row++;
+                                        for (int i = t_row; i <= b_row; ++i) if(grid[i][r_col] != 255) spiral.push_back(grid[i][r_col]);
+                                        r_col--;
+                                        if (t_row <= b_row) {
+                                            for (int i = r_col; i >= l_col; --i) if(grid[b_row][i] != 255) spiral.push_back(grid[b_row][i]);
+                                            b_row--;
+                                        }
+                                        if (l_col <= r_col) {
+                                            for (int i = b_row; i >= t_row; --i) if(grid[i][l_col] != 255) spiral.push_back(grid[i][l_col]);
+                                            l_col++;
+                                        }
+                                    }
+                                    check_route(spiral, "Spiral");
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                consecutive_hits = 0;
+            }
+        }
+        if (page_hits > 0) {
+            std::wcout << L"  - " << std::wstring(pg.name.begin(), pg.name.end()) << L": " << page_hits << L" potential secret pointers found.\n";
+        }
+    }
+    hits.close();
+    
+    std::wcout << L"[SUCCESS] Secrets analysis complete. Files generated in ../output/\n";
 }
 
 } // namespace utils

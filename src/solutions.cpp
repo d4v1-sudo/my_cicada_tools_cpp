@@ -3,11 +3,12 @@
 #include "core.h"
 #include <iostream>
 #include <iomanip>
+#include <set> // For std::set
 
 namespace core {
 
 bool has_known_solution(size_t page_index) {
-    // Lista de páginas que já possuem lógica de deciframento conhecida
+    // List of pages with already known decryption logic
     switch (page_index) {
         case 1: case 3: case 4: case 5: 
         case 6: case 7: case 8: case 9:
@@ -57,40 +58,39 @@ std::vector<size_t> get_possible_interrupters(size_t page_index) {
 bool apply_known_solution(const Page& page, ProcessedText& pt) {
     size_t idx = page.index;
 
-    // 1. Página 1: Atbash
+    // 1. Page 1: Atbash
     if (idx == 1) {
         AtbashTransformer().transform(pt);
         return true;
     }
 
-    // 2. Traduções Diretas
+    // 2. Direct Translations
     if (idx == 5 || idx == 10 || idx == 11 || idx == 12 || idx == 13 || idx == 16 || idx == 74) {
         return true;
     }
 
-    // 3. Páginas 3 e 4: Vigenere (DIVINITY) - Fluxo Contínuo
+    // 3. Vigenere (DIVINITY)
     if (idx == 3 || idx == 4) {
-        // Página 3 (WELCOME... END TO SELF)
         VigenereTransformer vt("ᛞᛁᚢᛁᚾᛁᛏᚣ", {48, 74, 84, 132, 159, 160, 250, 421, 443, 465, 514});
         vt.transform(pt);
         return true;
     }
 
-    // 4. Página 73: Totient Prime Function
+    // 4. Page 73: Totient Prime Function
     if (idx == 73) {
-        TotientPrimeTransformer tp(false, {56}, 1, false);
-        tp.transform(pt);
+        PrimeStreamTransformer pst(PrimeOperation::SUBTRACT, PrimeKeyDerivationMode::PRIME_MINUS_ONE, 0, {56});
+        pst.transform(pt);
         return true;
     }
 
-    // 5. Páginas 14 e 15: Vigenere (FIRFVMFERENFE)
+    // 5. Vigenere (FIRFVMFERENFE)
     if (idx == 14 || idx == 15) {
         VigenereTransformer vt("ᚠᛁᚱᚠᚢᛗᚠᛖᚱᛖᚾᚠᛖ", {49, 58});
         vt.transform(pt);
         return true;
     }
 
-    // 6. Páginas 6, 7, 8 e 9: Atbash com shift 3
+    // 6. Atbash with shift 3
     if (idx >= 6 && idx <= 9) {
         AtbashTransformer(3).transform(pt);
         return true;

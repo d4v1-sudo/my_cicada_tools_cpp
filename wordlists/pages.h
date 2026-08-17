@@ -4,11 +4,8 @@
 #include <array>
 #include <string_view>
 #include <cstddef>
-#include <vector>
 
 namespace core {
-
-class ProcessedText; // Forward declaration
 
 struct Page {
     size_t index;
@@ -16,14 +13,7 @@ struct Page {
     std::string_view content;
 };
 
-// Declarações das funções de solução (implementadas em solutions.cpp)
-// Centralizadas aqui para evitar dependências circulares com core.h
-bool has_known_solution(size_t page_index);
-bool apply_known_solution(const Page& page, ProcessedText& pt);
-std::string get_solution_method(size_t page_index);
-std::vector<size_t> get_possible_interrupters(size_t page_index);
-
-inline constexpr std::array<Page, 74> G_PAGES = {{
+inline constexpr std::array<Page, 75> G_PAGES = {{
     {1, "Page 1", R"raw(ᚱ-ᛝᚱᚪᛗᚹ.ᛄᛁᚻᛖᛁᛡᛁ-ᛗᚫᚣᚹ-ᛠᚪᚫᚾ-/
 ᚣᛖᛈ-ᛄᚫᚫᛞ.ᛁᛉᛞᛁᛋᛇ-ᛝᛚᚱᛇ-ᚦᚫᛡ/
 -ᛞᛗᚫᛝ-ᛇᚫ-ᛄᛁ-ᛇᚪᛡᛁ.ᛇᛁᛈᛇ-ᚣᛁ-ᛞ/
@@ -872,7 +862,8 @@ $)raw"},
 ᛁᚱᚳᚢᛗᚠᛖᚱᛖᚾᚳᛖᛋ.ᚠᛁᚾᛞ-ᚦ/
 ᛖ-ᛞᛁᚢᛁᚾᛁᛏᚣ-ᚹᛁᚦᛁᚾ-ᚪᚾᛞ-ᛖᛗᛖᚱᚷᛖ./
 &
-$)raw"}
+$)raw"}, 
+    {75, "Page 75", R"raw(§)raw"}, 
 }};
 
 } // namespace core
